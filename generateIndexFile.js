@@ -1,4 +1,7 @@
-<html>
+// Dieses Script wird von settings.html aufgerufen, um eine neue index.html zu generieren
+async function generateIndexFileFromSettings(config) {
+    // Vollständiges Template aus @index.html
+    const template = `<html>
     <head>
 		<meta charset="UTF-8">
         <title>Gluecksrad</title>
@@ -28,7 +31,7 @@ const wheelConfig = {
     "drawText": false,
     "drawMode": "segmentImage",
     "imageOverlay": true,
-    "imageDirection": "S",
+    "imageDirection": "N",
     "animation": {
         "type": "spinToStop",
         "duration": 35,
@@ -37,8 +40,8 @@ const wheelConfig = {
         "callbackAfter": null
     },
     "pins": {
-        "number": 0,
-        "outerRadius": 0,
+        "number": 16,
+        "outerRadius": 5,
         "margin": 0,
         "fillStyle": "#080808",
         "strokeStyle": "#ffffff"
@@ -47,38 +50,38 @@ const wheelConfig = {
 };
 const priceSegment = [
     {
-        "image": "image/pic03.png",
-        "fillStyle": "#c20000",
+        "image": "image/ToreRad2.png",
+        "fillStyle": "#009925",
         "textFontSize": 16,
-        "textFillStyle": "#ffffff",
-        "prize": "Niete",
-        "message": "Leider nicht gewonnen!",
+        "textFillStyle": "#0000ff",
+        "prize": "Test1",
+        "message": "Geh aufs Ganze",
         "text": "",
         "probability": 14
     },
     {
-        "image": "image/pic02.png",
-        "fillStyle": "#00e1ff",
+        "image": "image/Zonk3.png",
+        "fillStyle": "#d50f25",
         "textFontSize": 16,
         "textFillStyle": "black",
-        "prize": "Cool",
-        "message": "Geil, du hast gewonnen!",
+        "prize": "Test2",
+        "message": "Zonk",
         "text": "",
         "probability": 12
     },
     {
-        "image": "image/pic01.png",
-        "fillStyle": "#00990a",
+        "image": "image/FreeSpin2.png",
+        "fillStyle": "#ffff99",
         "textFontSize": 16,
-        "textFillStyle": "#ffffff",
-        "prize": "Lachen",
-        "message": "Yippie! Gewonnen!",
+        "textFillStyle": "black",
+        "prize": "Test3",
+        "message": "Free Spin",
         "text": "",
         "probability": 15
     },
     {
-        "image": "image/pic02.png",
-        "fillStyle": "#00ffff",
+        "image": "image/Zonk3.png",
+        "fillStyle": "#d50f25",
         "textFontSize": 16,
         "textFillStyle": "black",
         "prize": "Test4",
@@ -87,18 +90,18 @@ const priceSegment = [
         "probability": 12
     },
     {
-        "image": "image/pic03.png",
-        "fillStyle": "#c20000",
+        "image": "image/Pushups2.png",
+        "fillStyle": "#009925",
         "textFontSize": 16,
-        "textFillStyle": "#ffffff",
+        "textFillStyle": "black",
         "prize": "Test5",
         "message": "Pushups",
         "text": "",
         "probability": 10
     },
     {
-        "image": "image/pic02.png",
-        "fillStyle": "#00ffff",
+        "image": "image/Zonk3.png",
+        "fillStyle": "#d50f25",
         "textFontSize": 16,
         "textFillStyle": "black",
         "prize": "Test6",
@@ -107,8 +110,8 @@ const priceSegment = [
         "probability": 13
     },
     {
-        "image": "image/pic01.png",
-        "fillStyle": "#00990a",
+        "image": "image/10KPoints2.png",
+        "fillStyle": "#ffff99",
         "textFontSize": 16,
         "textFillStyle": "black",
         "prize": "Test7",
@@ -117,8 +120,8 @@ const priceSegment = [
         "probability": 10
     },
     {
-        "image": "image/pic02.png",
-        "fillStyle": "#00ffff",
+        "image": "image/Zonk3.png",
+        "fillStyle": "#d50f25",
         "textFontSize": 16,
         "textFillStyle": "white",
         "prize": "Test8",
@@ -413,4 +416,43 @@ const priceSegment = [
 			connectws();
         </script>	
     </body>
-</html>
+</html>`;
+
+    // Kopie der Konfiguration, damit das Original nicht verändert wird
+    const exportConfig = JSON.parse(JSON.stringify(config));
+
+    // Alle Segmente anpassen: image immer mit 'image/'
+    exportConfig.priceSegment = exportConfig.priceSegment.map(seg => ({
+        ...seg,
+        image: seg.image ? (seg.image.startsWith('image/') ? seg.image : 'image/' + seg.image.replace(/^image[\\/]/, '')) : ''
+    }));
+
+    let result = template;
+    result = result.replace(
+      /const\s+ACTION_ID\s*=\s*"[^"]+";/,
+      `const ACTION_ID = "${exportConfig.actionId}";`
+    );
+    result = result.replace(
+      /const\s+blinkConfig\s*=\s*{[\s\S]*?};/,
+      `const blinkConfig = ${JSON.stringify(exportConfig.blinkConfig, null, 4)};`
+    );
+    result = result.replace(
+      /const\s+wheelMode\s*=\s*{[\s\S]*?};/,
+      `const wheelMode = ${JSON.stringify(exportConfig.wheelMode, null, 4)};`
+    );
+    result = result.replace(
+      /const\s+wheelConfig\s*=\s*{[\s\S]*?};/,
+      `const wheelConfig = ${JSON.stringify(exportConfig.wheelConfig, null, 4)};`
+    );
+    result = result.replace(
+      /const\s+priceSegment\s*=\s*\[[\s\S]*?\];/,
+      `const priceSegment = ${JSON.stringify(exportConfig.priceSegment, null, 4)};`
+    );
+
+    // Biete die Datei als Download an
+    const blob = new Blob([result], {type: 'text/html'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'index.html';
+    a.click();
+} 

@@ -63,6 +63,7 @@
         }
     </style>
     <script src="Winwheel.js"></script>
+    <script src="generateIndexFile.js"></script>
 </head>
 <body>
 <div class="container">
@@ -75,10 +76,9 @@
                 <button class="tab-btn" onclick="showTab(2)" type="button">Segmente</button>
             </div>
             <div class="actions" style="margin-bottom: 18px;">
-                <label style="cursor:pointer;">
-                    <input type="file" id="configFileInput" accept=".js,.json" style="display:none" onchange="loadConfigFile(event)">
-                    <span style="background:#eee; color:#333; border-radius:6px; padding:8px 18px; border:1px solid #ccc; cursor:pointer;">Config laden</span>
-                </label>
+                <button id="loadConfigBtn" type="button" style="background:#6441a5; color:#fff; border:none; border-radius:6px; padding:12px 28px; cursor:pointer; font-size:1.1em; box-shadow:0 2px 8px #6441a522; margin-right:10px;">index.html laden</button>
+                <button type="button" onclick="generateIndexHtml()" style="background:#6441a5; color:#fff; border:none; border-radius:6px; padding:12px 28px; cursor:pointer; font-size:1.1em; box-shadow:0 2px 8px #6441a522;">index.html generieren</button>
+                <input type="file" id="configFileInput" accept=".js,.json,.html" style="display:none" onchange="loadConfigFile(event)">
             </div>
             <form id="settingsForm" autocomplete="off">
                 <div class="tab-content active">
@@ -99,10 +99,6 @@
                                 <option value="1">Segmentgröße nach Wahrscheinlichkeit</option>
                                 <option value="2">Gleiche Segmentgröße, Wahrscheinlichkeit bei Auswahl</option>
                             </select>
-                        </div>
-                        <div class="form-row">
-                            <label for="previewScale">Vorschau-Skalierung (%) <span class="tooltip" title="Nur für die Vorschau, beeinflusst nicht das echte Rad.">?</span></label>
-                            <input type="number" id="previewScale" min="10" max="100" value="50">
                         </div>
                         <div class="form-row">
                             <label for="textPadding">Text-Padding (px) <span class="tooltip" title="Abstand des Textes zum inneren/äußeren Rand">?</span></label>
@@ -219,12 +215,9 @@
                         <button class="add-segment" type="button" onclick="addSegment()">+ Segment hinzufügen</button>
                     </div>
                 </div>
-                <div class="actions">
-                    <button type="button" onclick="downloadConfig()">Konfiguration herunterladen</button>
-                </div>
             </form>
         </div>
-        <div class="preview-section" id="previewSection" style="display:none;">
+        <div class="preview-section" id="previewSection">
             <h2>Vorschau</h2>
             <div id="wheelPreviewSVGContainer">
                 <svg id="previewSVG" width="400" height="400"></svg>
@@ -267,16 +260,16 @@ function renderSegments() {
         const div = document.createElement('div');
         div.className = 'segment-card';
         div.innerHTML = `
-            <label>Name: <input type="text" value="${seg.prize}" onchange="segments[${idx}].prize=this.value; updatePreview()"></label>
-            <label>Text: <input type="text" value="${seg.message}" onchange="segments[${idx}].message=this.value; updatePreview()"></label>
+            <label>Radanzeige: <input type="text" value="${seg.prize}" onchange="segments[${idx}].prize=this.value; updatePreview()"></label>
+            <label>Chattext: <input type="text" value="${seg.message}" onchange="segments[${idx}].message=this.value; updatePreview()"></label>
             <label>Extra-Text: <input type="text" value="${seg.text}" onchange="segments[${idx}].text=this.value; updatePreview()"></label>
             <label>Textgröße: <input type="number" min="8" max="48" value="${seg.textFontSize}" onchange="segments[${idx}].textFontSize=parseInt(this.value); updatePreview()"></label>
             <label>Farbe: <input type="color" value="${seg.fillStyle}" onchange="segments[${idx}].fillStyle=this.value; updatePreview()"></label>
             <label>Textfarbe: <input type="color" value="${seg.textFillStyle}" onchange="segments[${idx}].textFillStyle=this.value; updatePreview()"></label>
-            <label>Wahrscheinlichkeit: <input type="number" min="1" value="${seg.probability}" onchange="segments[${idx}].probability=parseInt(this.value); updatePreview()"></label>
+            <label>Gewinn-%: <input type="number" min="1" value="${seg.probability}" onchange="segments[${idx}].probability=parseInt(this.value); updatePreview()"></label>
             <label>Bild: <input type="file" accept="image/*" onchange="handleImageUpload(event, ${idx})"></label>
-            <img class="img-preview" id="imgPreview${idx}" src="${seg.image && seg.image.startsWith('data:') ? seg.image : ''}" alt="" />
-            ${seg.image && !seg.image.startsWith('data:') ? '<span style="color:#c0392b;font-size:0.95em;">(Bild muss neu ausgewählt werden)</span>' : ''}
+            <label>Bildpfad: <input type="text" value="${seg.image || ''}" onchange="segments[${idx}].image=this.value; updatePreview()" style="width:180px"></label>
+            <img class="img-preview" id="imgPreview${idx}" src="${seg.image ? ('image/' + seg.image) : ''}" alt="" />
             <button type="button" onclick="removeSegment(${idx})">Entfernen</button>
         `;
         list.appendChild(div);
@@ -286,13 +279,10 @@ function renderSegments() {
 function handleImageUpload(event, idx) {
     const file = event.target.files[0];
     if (file) {
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            segments[idx].image = e.target.result;
-            document.getElementById('imgPreview'+idx).src = e.target.result;
+        const fileName = file.name;
+        segments[idx].image = fileName;
+        renderSegments();
             updatePreview();
-        };
-        reader.readAsDataURL(file);
     }
 }
 
@@ -310,25 +300,38 @@ function removeSegment(idx) {
 // Vorschau-Funktion (SVG)
 function updatePreview() {
     const svg = document.getElementById('previewSVG');
+    if (!svg) return;
     svg.innerHTML = '';
-
-    const scaleFactor = (parseInt(document.getElementById('previewScale')?.value) || 50) / 100;
-    const outerRadius = (parseInt(document.getElementById('outerRadius').value) || 180) * scaleFactor;
-    const innerRadius = (parseInt(document.getElementById('innerRadius').value) || 60) * scaleFactor;
-    const center = 200; // SVG ist 400x400
-
-    // Einstellungen holen
+    const canvasSize = 400;
+    const center = canvasSize / 2;
+    const outerRadius = parseInt(document.getElementById('outerRadius').value) || 310;
+    const innerRadius = parseInt(document.getElementById('innerRadius').value) || 80;
     const drawText = document.getElementById('drawText').value === 'true';
     const drawMode = document.getElementById('drawMode').value || 'segmentImage';
     const imageOverlay = document.getElementById('imageOverlay').value === 'true';
     const imageDirection = document.getElementById('imageDirection').value || 'S';
     const textAlignment = document.getElementById('textAlignment').value || 'inner';
-    const textOrientation = document.getElementById('textOrientation').value || 'horizontal';
+    const textOrientation = document.getElementById('textOrientation').value || 'vertical';
     const textPadding = parseInt(document.getElementById('textPadding')?.value) || 16;
-    const lineWidth = parseInt(document.getElementById('lineWidth').value) || 2;
+    const lineWidth = parseInt(document.getElementById('lineWidth').value) || 9;
     const strokeStyle = document.getElementById('strokeStyle').value || '#6441a5';
+    // Pins
+    const pinNumber = parseInt(document.getElementById('pinNumber').value) || 0;
+    const pinOuterRadius = parseInt(document.getElementById('pinOuterRadius').value) || 0;
+    const pinMargin = parseInt(document.getElementById('pinMargin').value) || 0;
+    const pinFillStyle = document.getElementById('pinFillStyle').value || '#000';
+    const pinStrokeStyle = document.getElementById('pinStrokeStyle').value || '#333';
+    // Animation
+    const animDuration = parseInt(document.getElementById('animDuration').value) || 0;
+    const animSpins = parseInt(document.getElementById('animSpins').value) || 0;
 
-    // Segmente berechnen
+    // Skaliere das Rad so, dass es immer vollständig sichtbar ist
+    const margin = 10;
+    const scale = (canvasSize / 2 - margin) / outerRadius;
+    const scaledOuter = outerRadius * scale;
+    const scaledInner = innerRadius * scale;
+
+    // Segmente vorbereiten
     let previewSegments = JSON.parse(JSON.stringify(segments));
     const mode = parseInt(document.getElementById('mode').value) || 1;
     if (mode === 1) {
@@ -344,122 +347,109 @@ function updatePreview() {
     previewSegments.forEach((seg, idx) => {
         const endAngle = startAngle + seg.size;
         const largeArc = seg.size > 180 ? 1 : 0;
-        const x1 = center + outerRadius * Math.cos(Math.PI * startAngle / 180);
-        const y1 = center + outerRadius * Math.sin(Math.PI * startAngle / 180);
-        const x2 = center + outerRadius * Math.cos(Math.PI * endAngle / 180);
-        const y2 = center + outerRadius * Math.sin(Math.PI * endAngle / 180);
-
+        const x1 = center + scaledOuter * Math.cos(Math.PI * startAngle / 180);
+        const y1 = center + scaledOuter * Math.sin(Math.PI * startAngle / 180);
+        const x2 = center + scaledOuter * Math.cos(Math.PI * endAngle / 180);
+        const y2 = center + scaledOuter * Math.sin(Math.PI * endAngle / 180);
         const pathData = [
             `M ${center} ${center}`,
             `L ${x1} ${y1}`,
-            `A ${outerRadius} ${outerRadius} 0 ${largeArc} 1 ${x2} ${y2}`,
+            `A ${scaledOuter} ${scaledOuter} 0 ${largeArc} 1 ${x2} ${y2}`,
             'Z'
         ].join(' ');
-
         // Segment-Hintergrund
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         path.setAttribute('d', pathData);
+        // drawMode: segmentImage = Segmentfarbe + Bild, image = nur Bild, text = nur Text
+        if (drawMode === 'image') {
+            path.setAttribute('fill', 'none');
+        } else {
         path.setAttribute('fill', seg.fillStyle || '#ccc');
-        path.setAttribute('stroke', strokeStyle);
-        path.setAttribute('stroke-width', lineWidth);
-        svg.appendChild(path);
-
-        // Bild im Segment (drawMode)
-        if (seg.image && seg.image.startsWith('data:')) {
-            // Platzierung auf Segmentmitte (Kreisbogen)
-            const angle = (startAngle + endAngle) / 2;
-            const imgSize = outerRadius * 0.5;
-            const imgX = center + (outerRadius * 0.7) * Math.cos(Math.PI * angle / 180);
-            const imgY = center + (outerRadius * 0.7) * Math.sin(Math.PI * angle / 180);
-            // Rotation wie in Winwheel.js: Bild zeigt immer nach außen, zusätzlich -90 Grad
-            let dir = seg.imageDirection || imageDirection;
-            let rotation = 0;
-            if (dir === 'S') rotation = angle + 180 - 90;
-            else if (dir === 'E') rotation = angle + 90 - 90;
-            else if (dir === 'W') rotation = angle - 90 - 90;
-            else rotation = angle - 90; // 'N' oder Standard
-            const imgDrawX = imgX - imgSize / 2;
-            const imgDrawY = imgY - imgSize / 2;
-            const image = document.createElementNS('http://www.w3.org/2000/svg', 'image');
-            image.setAttributeNS('http://www.w3.org/1999/xlink', 'href', seg.image);
-            image.setAttribute('x', imgDrawX);
-            image.setAttribute('y', imgDrawY);
-            image.setAttribute('width', imgSize);
-            image.setAttribute('height', imgSize);
-            // Rotation um die Bildmitte auf dem Segment
-            image.setAttribute('transform', `rotate(${rotation},${imgX},${imgY})`);
-            // Debug-Tooltip
-            image.setAttribute('title', `Segment: ${seg.prize || seg.message || ''}\nRichtung: ${dir}\nWinkel: ${rotation.toFixed(2)}\nimgX: ${imgX.toFixed(2)}\nimgY: ${imgY.toFixed(2)}`);
-            // drawMode: segmentImage = Bild im Segment, image = Bild ohne Segmentfarbe, text = kein Bild
-            if (drawMode === 'segmentImage') {
-                if (!imageOverlay) {
-                    // Segmentfarbe ausblenden, Bild als Füllung
-                    path.setAttribute('fill', 'none');
-                }
-                svg.appendChild(image);
-            } else if (drawMode === 'image') {
-                // Nur Bild, kein Segment-Hintergrund
-                path.setAttribute('fill', 'none');
-                svg.appendChild(image);
-            }
-            // drawMode text: kein Bild
         }
-
-        // Text (zentriert im Segment)
+        path.setAttribute('stroke', strokeStyle);
+        path.setAttribute('stroke-width', lineWidth * scale);
+        svg.appendChild(path);
+        // Bild im Segment
+        if (seg.image && (drawMode === 'segmentImage' || drawMode === 'image')) {
+            const angle = (startAngle + endAngle) / 2;
+            const img = new window.Image();
+            img.src = `image/${seg.image.replace(/^image[\\/]/, '')}`;
+            img.onload = function() {
+                let imgSizeW, imgSizeH;
+                if (drawMode === 'image') {
+                    // Im Modus 'image' Bild proportional zum Rad, aber nicht als Füllung
+                    imgSizeW = img.width * scale;
+                    imgSizeH = img.height * scale;
+                } else if (!imageOverlay) {
+                    // Bild als Füllung
+                    imgSizeW = scaledOuter * 1.2;
+                    imgSizeH = scaledOuter * 1.2;
+                } else {
+                    imgSizeW = img.width * scale;
+                    imgSizeH = img.height * scale;
+                }
+                // Bildausrichtung
+                let rotation = angle-90;
+                if (imageDirection === 'S') rotation = angle+90;
+                else if (imageDirection === 'E') rotation = angle;
+                else if (imageDirection === 'W') rotation = angle+180;
+                // Position auf dem Rad (Mitte des Segments)
+                const r = (scaledOuter + scaledInner) / 2;
+                const imgX = center + r * Math.cos(Math.PI * angle / 180) - imgSizeW/2;
+                const imgY = center + r * Math.sin(Math.PI * angle / 180) - imgSizeH/2;
+                const image = document.createElementNS('http://www.w3.org/2000/svg', 'image');
+                image.setAttributeNS('http://www.w3.org/1999/xlink', 'href', img.src);
+                image.setAttribute('x', imgX);
+                image.setAttribute('y', imgY);
+                image.setAttribute('width', imgSizeW);
+                image.setAttribute('height', imgSizeH);
+                image.setAttribute('transform', `rotate(${rotation},${imgX+imgSizeW/2},${imgY+imgSizeH/2})`);
+                svg.appendChild(image);
+            };
+        }
+        // Text im Segment
         if (drawText && drawMode !== 'image') {
             const angle = (startAngle + endAngle) / 2;
-            // Textposition je nach Alignment
-            let textRadius = (outerRadius + innerRadius) / 2;
-            if (textAlignment === 'inner') textRadius = innerRadius + textPadding * scaleFactor;
-            else if (textAlignment === 'outer') textRadius = outerRadius - textPadding * scaleFactor;
-            // Textausrichtung
+            let textRadius = (scaledOuter + scaledInner) / 2;
+            if (textAlignment === 'inner') textRadius = scaledInner + textPadding * scale;
+            else if (textAlignment === 'outer') textRadius = scaledOuter - textPadding * scale;
             let textAnchor = 'middle';
             let rotate = angle;
-            if (textOrientation === 'vertical') {
-                rotate += 90;
-            }
+            if (textOrientation === 'vertical') rotate += 90;
             const textX = center + textRadius * Math.cos(Math.PI * angle / 180);
             const textY = center + textRadius * Math.sin(Math.PI * angle / 180);
             const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
             text.setAttribute('x', textX);
             text.setAttribute('y', textY);
             text.setAttribute('fill', seg.textFillStyle || 'black');
-            text.setAttribute('font-size', (seg.textFontSize || 16) * scaleFactor);
+            text.setAttribute('font-size', (seg.textFontSize || 16) * scale);
             text.setAttribute('text-anchor', textAnchor);
             text.setAttribute('dominant-baseline', 'middle');
             text.setAttribute('transform', `rotate(${rotate},${textX},${textY})`);
             text.textContent = seg.prize || seg.message || '';
             svg.appendChild(text);
         }
-
         startAngle = endAngle;
     });
-
     // Loch in der Mitte
     const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
     circle.setAttribute('cx', center);
     circle.setAttribute('cy', center);
-    circle.setAttribute('r', innerRadius);
+    circle.setAttribute('r', scaledInner);
     circle.setAttribute('fill', '#fff');
     svg.appendChild(circle);
-
     // Pins zeichnen
-    const pinNumber = parseInt(document.getElementById('pinNumber').value) || 0;
-    const pinOuterRadius = parseInt(document.getElementById('pinOuterRadius').value) || 0;
-    const pinMargin = parseInt(document.getElementById('pinMargin').value) || 0;
-    const pinFillStyle = document.getElementById('pinFillStyle').value || '#000';
-    const pinStrokeStyle = document.getElementById('pinStrokeStyle').value || '#333';
     if (pinNumber > 0 && pinOuterRadius > 0) {
         for (let i = 0; i < pinNumber; i++) {
             const angle = (360 / pinNumber) * i;
             const rad = Math.PI * angle / 180;
-            const r = outerRadius + pinMargin + pinOuterRadius;
+            const r = scaledOuter + pinMargin * scale + pinOuterRadius * scale;
             const pinX = center + r * Math.cos(rad);
             const pinY = center + r * Math.sin(rad);
             const pin = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
             pin.setAttribute('cx', pinX);
             pin.setAttribute('cy', pinY);
-            pin.setAttribute('r', pinOuterRadius);
+            pin.setAttribute('r', pinOuterRadius * scale);
             pin.setAttribute('fill', pinFillStyle);
             pin.setAttribute('stroke', pinStrokeStyle);
             pin.setAttribute('stroke-width', 1);
@@ -468,129 +458,169 @@ function updatePreview() {
     }
 }
 
-function downloadConfig() {
-    // Hilfsfunktion für robustes Auslesen
-    function getFieldValue(id, fallback = '') {
-        const el = document.getElementById(id);
-        return el ? el.value : fallback;
-    }
-    // Allgemein
-    const actionId = getFieldValue('actionId').trim();
-    const mode = parseInt(getFieldValue('mode'));
-    // Blink
-    const blinkDuration = parseInt(getFieldValue('blinkDuration'));
-    const blinkInterval = parseInt(getFieldValue('blinkInterval'));
-    const blinkColor = getFieldValue('blinkColor');
-    // Wheel
-    const outerRadius = parseInt(getFieldValue('outerRadius'));
-    const innerRadius = parseInt(getFieldValue('innerRadius'));
-    const lineWidth = parseInt(getFieldValue('lineWidth'));
-    const strokeStyle = getFieldValue('strokeStyle');
-    // const textFontSize = parseInt(getFieldValue('textFontSize')); // entfernt
-    const textAlignment = getFieldValue('textAlignment');
-    const textOrientation = getFieldValue('textOrientation');
-    const drawText = getFieldValue('drawText') === 'true';
-    const drawMode = getFieldValue('drawMode');
-    const imageOverlay = getFieldValue('imageOverlay') === 'true';
-    const imageDirection = getFieldValue('imageDirection');
-    // const pointerAngle = parseInt(getFieldValue('pointerAngle')); // entfernt
-    // Pins
-    const pinNumber = parseInt(getFieldValue('pinNumber'));
-    const pinOuterRadius = parseInt(getFieldValue('pinOuterRadius'));
-    const pinMargin = parseInt(getFieldValue('pinMargin'));
-    const pinFillStyle = getFieldValue('pinFillStyle');
-    const pinStrokeStyle = getFieldValue('pinStrokeStyle');
-    // Animation
-    const animDuration = parseInt(getFieldValue('animDuration'));
-    const animSpins = parseInt(getFieldValue('animSpins'));
-
-    const config =
-`// Streamerbot Action ID für Gewinn-Benachrichtigung
-const ACTION_ID = '${actionId}';
-
-// Blink-Einstellungen für Gewinnersegment
-const blinkConfig = {
-    duration: ${blinkDuration},
-    interval: ${blinkInterval},
-    color: '${blinkColor}'
-};
-
-// Rad-Modus
-const wheelMode = {
-    mode: ${mode} // 1 = Segmentgröße basierend auf Wahrscheinlichkeit, 2 = Gleiche Segmentgröße
-};
-
-// Wheel-Konfiguration
-const wheelConfig = {
-    numSegments: 0,
-    lineWidth: ${lineWidth},
-    strokeStyle: '${strokeStyle}',
-    outerRadius: ${outerRadius},
-    innerRadius: ${innerRadius},
-    // textFontSize entfernt
-    textAlignment: '${textAlignment}',
-    textOrientation: '${textOrientation}',
-    rotationAngle: 0,
-    drawText: ${drawText},
-    drawMode: '${drawMode}',
-    imageOverlay: ${imageOverlay},
-    imageDirection: '${imageDirection}',
-    // pointerAngle entfernt
-    animation: {
-        type: 'spinToStop',
-        duration: ${animDuration},
-        spins: ${animSpins},
-        callbackFinished: null,
-        callbackAfter: null
-    },
-    pins: {
-        number: ${pinNumber},
-        outerRadius: ${pinOuterRadius},
-        margin: ${pinMargin},
-        fillStyle: '${pinFillStyle}',
-        strokeStyle: '${pinStrokeStyle}'
-    },
-    textPadding: ${parseInt(getFieldValue('textPadding') || 16)},
-};
-
-// Segment-Definitionen
-const priceSegment = [
-${segments.map(seg => `    {
-        image: '${seg.image}',
-        fillStyle: '${seg.fillStyle}',
-        textFontSize: ${seg.textFontSize},
-        textFillStyle: '${seg.textFillStyle}',
-        prize: '${seg.prize}',
-        message: '${seg.message}',
-        text: '${seg.text}',
-        size: 0,
-        probability: ${seg.probability}
-    }`).join(',\n')}
-];
-
-// Exportiere die Konfiguration
-window.wheelConfig = wheelConfig;
-window.priceSegment = priceSegment;
-window.blinkConfig = blinkConfig;
-window.wheelMode = wheelMode;
-`;
-    const blob = new Blob([config], {type: 'text/javascript'});
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'config.js';
-    a.click();
-}
-
 function loadConfigFile(event) {
     const file = event.target.files[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = function(e) {
         let text = e.target.result;
-        // Versuche, window.xyz = xyz zu entfernen und nur das JS-Objekt zu parsen
+        
+        // Wenn es eine HTML-Datei ist, extrahiere die Konfiguration
+        if (file.name.endsWith('.html')) {
+            const configMatch = text.match(/const\s+ACTION_ID\s*=\s*"([^"]+)";[\s\S]*?const\s+blinkConfig\s*=\s*({[\s\S]*?});[\s\S]*?const\s+wheelMode\s*=\s*({[\s\S]*?});[\s\S]*?const\s+wheelConfig\s*=\s*({[\s\S]*?});[\s\S]*?const\s+priceSegment\s*=\s*(\[[\s\S]*?\]);/);
+            if (configMatch) {
+                try {
+                    // Extrahiere die Konfiguration
+                    const actionId = configMatch[1];
+                    
+                    // Hilfsfunktion zum Konvertieren von JavaScript-Objekten in JSON
+                    function convertToJSON(str) {
+                        // Entferne Kommentare
+                        str = str.replace(/\/\/.*$/gm, '');
+                        
+                        // Ersetze einfache durch doppelte Anführungszeichen für Strings
+                        str = str.replace(/'([^']*)'/g, '"$1"');
+                        
+                        // Füge Anführungszeichen zu Eigenschaftsnamen hinzu
+                        str = str.replace(/([a-zA-Z0-9_]+):/g, '"$1":');
+                        
+                        // Entferne Leerzeichen vor und nach Doppelpunkten
+                        str = str.replace(/\s*:\s*/g, ':');
+                        
+                        // Entferne Leerzeichen vor und nach Kommas
+                        str = str.replace(/\s*,\s*/g, ',');
+                        
+                        // Entferne Leerzeichen vor und nach geschweiften Klammern
+                        str = str.replace(/\s*{\s*/g, '{');
+                        str = str.replace(/\s*}\s*/g, '}');
+                        
+                        // Entferne Leerzeichen vor und nach eckigen Klammern
+                        str = str.replace(/\s*\[\s*/g, '[');
+                        str = str.replace(/\s*\]\s*/g, ']');
+                        
+                        // Entferne überflüssige Kommas
+                        str = str.replace(/,(\s*[}\]])/g, '$1');
+                        
+                        // Entferne überflüssige Leerzeichen
+                        str = str.replace(/\s+/g, ' ').trim();
+                        
+                        return str;
+                    }
+
+                    // Konvertiere die Konfigurationen
+                    const blinkConfigStr = convertToJSON(configMatch[2]);
+                    const wheelModeStr = convertToJSON(configMatch[3]);
+                    const wheelConfigStr = convertToJSON(configMatch[4]);
+                    const priceSegmentStr = convertToJSON(configMatch[5]);
+
+                    // Versuche das Parsen mit eval als Fallback
+                    let blinkConfig, wheelMode, wheelConfig, priceSegment;
+                    try {
+                        blinkConfig = JSON.parse(blinkConfigStr);
+                        wheelMode = JSON.parse(wheelModeStr);
+                        wheelConfig = JSON.parse(wheelConfigStr);
+                        priceSegment = JSON.parse(priceSegmentStr);
+                    } catch (parseError) {
+                        // Verwende eval als Fallback
+                        blinkConfig = eval('(' + configMatch[2] + ')');
+                        wheelMode = eval('(' + configMatch[3] + ')');
+                        wheelConfig = eval('(' + configMatch[4] + ')');
+                        priceSegment = eval('(' + configMatch[5] + ')');
+                    }
+
+                    // Setze die Werte in die Formularfelder
+                    document.getElementById('actionId').value = actionId;
+                    document.getElementById('blinkDuration').value = blinkConfig.duration;
+                    document.getElementById('blinkInterval').value = blinkConfig.interval;
+                    document.getElementById('blinkColor').value = blinkConfig.color;
+                    document.getElementById('mode').value = wheelMode.mode;
+                    
+                    // Wheel-Konfiguration
+                    Object.entries(wheelConfig).forEach(([key, value]) => {
+                        const element = document.getElementById(key);
+                        if (element) {
+                            if (typeof value === 'boolean') {
+                                element.value = String(value);
+                            } else {
+                                element.value = value;
+                            }
+                        }
+                    });
+
+                    // Animation
+                    if (wheelConfig.animation) {
+                        let logMsg = '[Import Animation] ';
+                        const animDuration = wheelConfig.animation.duration;
+                        const animSpins = wheelConfig.animation.spins;
+                        const animDurationField = document.getElementById('animDuration');
+                        const animSpinsField = document.getElementById('animSpins');
+                        logMsg += `imported duration: ${animDuration} (${typeof animDuration}), spins: ${animSpins} (${typeof animSpins}) | `;
+                        if (animDurationField) {
+                            animDurationField.value = animDuration ?? '';
+                            logMsg += `animDurationField set: ${animDurationField.value} (${typeof animDurationField.value}) | `;
+                        } else {
+                            logMsg += 'animDurationField NOT FOUND | ';
+                        }
+                        if (animSpinsField) {
+                            animSpinsField.value = animSpins ?? '';
+                            logMsg += `animSpinsField set: ${animSpinsField.value} (${typeof animSpinsField.value}) | `;
+                        } else {
+                            logMsg += 'animSpinsField NOT FOUND | ';
+                        }
+                        console.log(logMsg + 'Import-Code ausgeführt.');
+                    }
+
+                    // Pins
+                    if (wheelConfig.pins) {
+                        let logMsg = '[Import Pins] ';
+                        const pinFieldMap = {
+                            pinNumber: 'number',
+                            pinOuterRadius: 'outerRadius',
+                            pinMargin: 'margin',
+                            pinFillStyle: 'fillStyle',
+                            pinStrokeStyle: 'strokeStyle'
+                        };
+                        Object.entries(pinFieldMap).forEach(([field, prop]) => {
+                            const element = document.getElementById(field);
+                            const value = wheelConfig.pins[prop];
+                            if (element) {
+                                element.value = value ?? '';
+                                logMsg += `${field}: ${value} | `;
+                            }
+                        });
+                        console.log(logMsg + 'Import-Code ausgeführt.');
+                    }
+
+                    // Segmente
+                    segments = priceSegment.map(seg => ({
+                        image: seg.image || '',
+                        fillStyle: seg.fillStyle || '#d50f25',
+                        textFontSize: seg.textFontSize || 16,
+                        textFillStyle: seg.textFillStyle || 'black',
+                        prize: seg.prize || '',
+                        message: seg.message || '',
+                        text: seg.text || '',
+                        probability: seg.probability !== undefined ? seg.probability : 0
+                    }));
+                    renderSegments();
+                    updatePreview();
+                    alert('index.html erfolgreich geladen!');
+                } catch (err) {
+                    console.error('Fehler beim Parsen:', err);
+                    console.error('Originale Strings:');
+                    console.error('BlinkConfig:', configMatch[2]);
+                    console.error('WheelMode:', configMatch[3]);
+                    console.error('WheelConfig:', configMatch[4]);
+                    console.error('PriceSegment:', configMatch[5]);
+                    alert('Fehler beim Parsen der index.html: ' + err.message);
+                }
+            } else {
+                alert('Konnte keine Konfiguration in der index.html finden!');
+            }
+        } else {
+            // Bestehende Logik für .js und .json Dateien
         text = text.replace(/window\.[a-zA-Z0-9_]+\s*=\s*/g, '');
         try {
-            // Füge den Code als <script>-Tag ein, damit die Variablen global werden
             const script = document.createElement('script');
             script.textContent = text;
             document.body.appendChild(script);
@@ -618,8 +648,25 @@ function loadConfigFile(event) {
                     setField('pinStrokeStyle', wheelConfig.pins.strokeStyle);
                 }
                 if (wheelConfig.animation) {
-                    setField('animDuration', wheelConfig.animation.duration);
-                    setField('animSpins', wheelConfig.animation.spins);
+                        let logMsg = '[Import Animation] ';
+                        const animDuration = wheelConfig.animation.duration;
+                        const animSpins = wheelConfig.animation.spins;
+                        const animDurationField = document.getElementById('animDuration');
+                        const animSpinsField = document.getElementById('animSpins');
+                        logMsg += `imported duration: ${animDuration} (${typeof animDuration}), spins: ${animSpins} (${typeof animSpins}) | `;
+                        if (animDurationField) {
+                            animDurationField.value = animDuration ?? '';
+                            logMsg += `animDurationField set: ${animDurationField.value} (${typeof animDurationField.value}) | `;
+                        } else {
+                            logMsg += 'animDurationField NOT FOUND | ';
+                        }
+                        if (animSpinsField) {
+                            animSpinsField.value = animSpins ?? '';
+                            logMsg += `animSpinsField set: ${animSpinsField.value} (${typeof animSpinsField.value}) | `;
+                        } else {
+                            logMsg += 'animSpinsField NOT FOUND | ';
+                        }
+                        console.log(logMsg + 'Import-Code ausgeführt.');
                 }
                 if (typeof wheelConfig.textPadding !== 'undefined') {
                     setField('textPadding', wheelConfig.textPadding);
@@ -653,9 +700,65 @@ function loadConfigFile(event) {
             alert('Config erfolgreich geladen!');
         } catch (err) {
             alert('Fehler beim Laden der Config: ' + err.message);
+            }
         }
     };
     reader.readAsText(file);
+}
+
+function generateIndexHtml() {
+    generateIndexFileFromSettings(getCurrentConfig());
+}
+
+function getCurrentConfig() {
+    // Hilfsfunktion für robustes Auslesen
+    function getFieldValue(id, fallback = '') {
+        const el = document.getElementById(id);
+        return el ? el.value : fallback;
+    }
+
+    // Sammle alle Konfigurationswerte
+    return {
+        actionId: getFieldValue('actionId').trim(),
+        blinkConfig: {
+            duration: parseInt(getFieldValue('blinkDuration')),
+            interval: parseInt(getFieldValue('blinkInterval')),
+            color: getFieldValue('blinkColor')
+        },
+        wheelMode: {
+            mode: parseInt(getFieldValue('mode'))
+        },
+        wheelConfig: {
+            numSegments: 0,
+            lineWidth: parseInt(getFieldValue('lineWidth')),
+            strokeStyle: getFieldValue('strokeStyle'),
+            outerRadius: parseInt(getFieldValue('outerRadius')),
+            innerRadius: parseInt(getFieldValue('innerRadius')),
+            textAlignment: getFieldValue('textAlignment'),
+            textOrientation: getFieldValue('textOrientation'),
+            rotationAngle: 0,
+            drawText: getFieldValue('drawText') === 'true',
+            drawMode: getFieldValue('drawMode'),
+            imageOverlay: getFieldValue('imageOverlay') === 'true',
+            imageDirection: getFieldValue('imageDirection'),
+            animation: {
+                type: 'spinToStop',
+                duration: parseInt(getFieldValue('animDuration')),
+                spins: parseInt(getFieldValue('animSpins')),
+                callbackFinished: null,
+                callbackAfter: null
+            },
+            pins: {
+                number: parseInt(getFieldValue('pinNumber')),
+                outerRadius: parseInt(getFieldValue('pinOuterRadius')),
+                margin: parseInt(getFieldValue('pinMargin')),
+                fillStyle: getFieldValue('pinFillStyle'),
+                strokeStyle: getFieldValue('pinStrokeStyle')
+            },
+            textPadding: parseInt(getFieldValue('textPadding') || 16)
+        },
+        priceSegment: segments
+    };
 }
 
 // Initiales Rendern
@@ -663,7 +766,10 @@ renderSegments();
 updatePreview();
 // Vorschau bei Änderung der Einstellungen aktualisieren
 [...document.querySelectorAll('input,select')].forEach(el => el.addEventListener('change', updatePreview));
-document.getElementById('previewScale').addEventListener('change', updatePreview);
+
+document.getElementById('loadConfigBtn').onclick = function() {
+    document.getElementById('configFileInput').click();
+};
 </script>
 </body>
 </html> 

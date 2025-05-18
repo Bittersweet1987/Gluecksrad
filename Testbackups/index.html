@@ -8,129 +8,139 @@
         <script>
             // Konfiguration direkt eingebettet
             const ACTION_ID = "b6e91213-a8fa-437e-8b46-a4208529fb45";
-const blinkConfig = {
-    "duration": 10000,
-    "interval": 300,
-    "color": "#19cfe5"
-};
-const wheelMode = {
-    "mode": 1
-};
-const wheelConfig = {
-    "numSegments": 0,
-    "lineWidth": 9,
-    "strokeStyle": "#6441a5",
-    "outerRadius": 310,
-    "innerRadius": 80,
-    "textAlignment": "outer",
-    "textOrientation": "vertical",
-    "rotationAngle": 0,
-    "drawText": false,
-    "drawMode": "segmentImage",
-    "imageOverlay": true,
-    "imageDirection": "S",
-    "animation": {
-        "type": "spinToStop",
-        "duration": 35,
-        "spins": 25,
-        "callbackFinished": null,
-        "callbackAfter": null
-    },
-    "pins": {
-        "number": 0,
-        "outerRadius": 0,
-        "margin": 0,
-        "fillStyle": "#080808",
-        "strokeStyle": "#ffffff"
-    },
-    "textPadding": 16
-};
-const priceSegment = [
-    {
-        "image": "image/pic03.png",
-        "fillStyle": "#c20000",
-        "textFontSize": 16,
-        "textFillStyle": "#ffffff",
-        "prize": "Niete",
-        "message": "Leider nicht gewonnen!",
-        "text": "",
-        "probability": 14
-    },
-    {
-        "image": "image/pic02.png",
-        "fillStyle": "#00e1ff",
-        "textFontSize": 16,
-        "textFillStyle": "black",
-        "prize": "Cool",
-        "message": "Geil, du hast gewonnen!",
-        "text": "",
-        "probability": 12
-    },
-    {
-        "image": "image/pic01.png",
-        "fillStyle": "#00990a",
-        "textFontSize": 16,
-        "textFillStyle": "#ffffff",
-        "prize": "Lachen",
-        "message": "Yippie! Gewonnen!",
-        "text": "",
-        "probability": 15
-    },
-    {
-        "image": "image/pic02.png",
-        "fillStyle": "#00ffff",
-        "textFontSize": 16,
-        "textFillStyle": "black",
-        "prize": "Test4",
-        "message": "Zonk",
-        "text": "",
-        "probability": 12
-    },
-    {
-        "image": "image/pic03.png",
-        "fillStyle": "#c20000",
-        "textFontSize": 16,
-        "textFillStyle": "#ffffff",
-        "prize": "Test5",
-        "message": "Pushups",
-        "text": "",
-        "probability": 10
-    },
-    {
-        "image": "image/pic02.png",
-        "fillStyle": "#00ffff",
-        "textFontSize": 16,
-        "textFillStyle": "black",
-        "prize": "Test6",
-        "message": "Zonk",
-        "text": "",
-        "probability": 13
-    },
-    {
-        "image": "image/pic01.png",
-        "fillStyle": "#00990a",
-        "textFontSize": 16,
-        "textFillStyle": "black",
-        "prize": "Test7",
-        "message": "10000 GambaPoints",
-        "text": "",
-        "probability": 10
-    },
-    {
-        "image": "image/pic02.png",
-        "fillStyle": "#00ffff",
-        "textFontSize": 16,
-        "textFillStyle": "white",
-        "prize": "Test8",
-        "message": "Zonk",
-        "text": "",
-        "probability": 14
-    }
-]; // (Hier steht der Segment-Array-Inhalt, wie im Original)
+            const blinkConfig = {
+                duration: 10000,
+    			interval: 300,
+    			color: '#19cfe5'
+            };
+            const wheelMode = {
+                mode: 1 // 1 = Segmentgröße basierend auf Wahrscheinlichkeit, 2 = Gleiche Segmentgröße
+            };
+            const wheelConfig = {
+                numSegments: 0,
+				lineWidth: 9,
+				strokeStyle: '#6441a5',
+				outerRadius: 310,
+				innerRadius: 80,
+				// textFontSize entfernt
+				textAlignment: 'outer',
+				textOrientation: 'vertical',
+				rotationAngle: 0,
+				drawText: false,
+				drawMode: 'segmentImage',
+				imageOverlay: true,
+				imageDirection: 'N',
+				// pointerAngle entfernt
+				animation: {
+					type: 'spinToStop',
+					duration: 35,
+					spins: 25,
+					callbackFinished: null,
+					callbackAfter: null
+				},
+				pins: {
+					number: 16,
+					outerRadius: 5,
+					margin: 0,
+					fillStyle: '#080808',
+					strokeStyle: '#ffffff'
+				},
+				textPadding: 16,			
+            };
+            const priceSegment = [
+			{
+        		image: 'image/ToreRad2.png',
+        		fillStyle: '#009925',
+        		textFontSize: 16,
+        		textFillStyle: '#0000ff',
+        		prize: 'Test1',
+        		message: 'Geh aufs Ganze',
+        		text: '',
+       		 	size: 0,
+       		 	probability: 14
+    		},
+    		{
+        		image: 'image/Zonk3.png',
+        		fillStyle: '#d50f25',
+        		textFontSize: 16,
+        		textFillStyle: 'black',
+        		prize: 'Test2',
+        		message: 'Zonk',
+        		text: '',
+        		size: 0,
+        		probability: 12
+    		},
+    		{
+        		image: 'image/FreeSpin2.png',
+        		fillStyle: '#ffff99',
+        		textFontSize: 16,
+        		textFillStyle: 'black',
+        		prize: 'Test3',
+        		message: 'Free Spin',
+        		text: '',
+        		size: 0,
+        		probability: 15
+    		},
+    		{
+        		image: 'image/Zonk3.png',
+        		fillStyle: '#d50f25',
+        		textFontSize: 16,
+        		textFillStyle: 'black',
+        		prize: 'Test4',
+        		message: 'Zonk',
+        		text: '',
+        		size: 0,
+        		probability: 12
+    		},
+    		{
+        		image: 'image/Pushups2.png',
+        		fillStyle: '#009925',
+        		textFontSize: 16,
+        		textFillStyle: 'black',
+        		prize: 'Test5',
+        		message: 'Pushups',
+        		text: '',
+        		size: 0,
+        		probability: 10
+    		},
+    		{
+        		image: 'image/Zonk3.png',
+        		fillStyle: '#d50f25',
+        		textFontSize: 16,
+        		textFillStyle: 'black',
+        		prize: 'Test6',
+        		message: 'Zonk',
+        		text: '',
+        		size: 0,
+        		probability: 13
+    		},
+    		{
+        		image: 'image/10KPoints2.png',
+        		fillStyle: '#ffff99',
+        		textFontSize: 16,
+        		textFillStyle: 'black',
+        		prize: 'Test7',
+        		message: '10000 GambaPoints',
+        		text: '',
+        		size: 0,
+        		probability: 10
+    		},
+    		{
+        		image: 'image/Zonk3.png',
+        		fillStyle: '#d50f25',
+        		textFontSize: 16,
+        		textFillStyle: 'white',
+        		prize: 'Test8',
+        		message: 'Zonk',
+        		text: '',
+        		size: 0,
+        		probability: 14
+    		}
+            ];
         </script>
     </head>
     <body>
-	<!-- /* Kann beliebig erweitert werden */ -->
+		<!-- /* Kann beliebig erweitert werden */ -->
         <div align="center">
              <table cellpadding="0" cellspacing="0" border="0">
                 <tr>
@@ -317,7 +327,7 @@ const priceSegment = [
 				// Debug-Ausgabe der Segmentgrößen
 				for (let x = 1; x <= theWheel.numSegments; x++) {
 					countAngle[x] = theWheel.segments[x].size;
-					
+					console.log(`Segment ${x} Größe:`, winwheelDegreesToPercent(countAngle[x]));
 				}
 				
 				// Berechne Summen
@@ -329,7 +339,8 @@ const priceSegment = [
 
 				const randomSegmentIndex = getRandomSegmentIndex(priceSegment);
 				
-				
+				console.log(`Zufälliges Segmentindex: ${randomSegmentIndex}`, priceSegment[randomSegmentIndex].prize);
+				console.log(`Gewähltes Segment:`, priceSegment[randomSegmentIndex]);
 				
 				// Überprüfe, ob das Segment existiert
 				if (randomSegmentIndex + 1 > theWheel.numSegments) {
@@ -411,6 +422,6 @@ const priceSegment = [
 
 			// Initialisiere die Websocket-Verbindung erst nach der Wheel-Erstellung
 			connectws();
-        </script>	
+        </script>
     </body>
 </html>
