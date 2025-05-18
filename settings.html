@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>Glücksrad Einstellungen</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f7f8fa; margin: 0; padding: 0; }
+        .container { max-width: 1000px; margin: 30px auto; background: #fff; padding: 32px 24px; border-radius: 16px; box-shadow: 0 4px 24px #0001; }
+        h1 { text-align: center; margin-bottom: 32px; color: #6441a5; }
+        h2 { color: #333; margin-top: 32px; margin-bottom: 12px; }
+        .tabs { display: flex; border-bottom: 2px solid #eee; margin-bottom: 24px; }
+        .tab-btn { flex: 1; padding: 14px 0; background: none; border: none; font-size: 1.1em; color: #888; cursor: pointer; border-bottom: 3px solid transparent; transition: color 0.2s, border 0.2s; }
+        .tab-btn.active { color: #6441a5; border-bottom: 3px solid #6441a5; background: #f7f8fa; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .section { margin-bottom: 32px; padding: 24px 18px; border-radius: 12px; background: #f4f4fa; box-shadow: 0 1px 4px #0001; }
+        .form-row { display: flex; flex-wrap: wrap; gap: 18px; margin-bottom: 18px; align-items: center; }
+        .form-row label { min-width: 160px; font-weight: 500; color: #333; }
+        .form-row input, .form-row select { flex: 1; padding: 8px 10px; border-radius: 6px; border: 1px solid #ccc; font-size: 1em; }
+        .form-row input[type="color"] { padding: 0; width: 40px; height: 32px; border: none; }
+        .form-row .tooltip { margin-left: 8px; color: #888; cursor: help; font-size: 1.1em; }
+        .segment-list { margin-bottom: 20px; }
+        .segment-card { background: #fff; border-radius: 10px; box-shadow: 0 1px 6px #0001; padding: 16px; margin-bottom: 16px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+        .segment-card input, .segment-card select { padding: 6px 8px; border-radius: 5px; border: 1px solid #ccc; font-size: 1em; }
+        .segment-card input[type="color"] { width: 36px; height: 28px; border: none; }
+        .segment-card label { min-width: 90px; font-size: 0.97em; color: #444; }
+        .segment-card button { background: #e74c3c; color: #fff; border: none; border-radius: 4px; padding: 4px 10px; cursor: pointer; margin-left: 8px; }
+        .segment-card button:hover { background: #c0392b; }
+        .segment-card .img-preview { width: 40px; height: 40px; object-fit: contain; border: 1px solid #ccc; border-radius: 4px; background: #fafafa; margin-right: 8px; }
+        .add-segment { background: #27ae60; color: #fff; border: none; border-radius: 6px; padding: 10px 20px; cursor: pointer; font-size: 1em; margin-bottom: 20px; }
+        .add-segment:hover { background: #219150; }
+        .actions { text-align: center; margin-top: 36px; }
+        .actions button { background: #6441a5; color: #fff; border: none; border-radius: 6px; padding: 12px 28px; cursor: pointer; font-size: 1.1em; box-shadow: 0 2px 8px #6441a522; }
+        .actions button:hover { background: #4b2c7a; }
+        .preview-section { background: #f7f8fa; border-radius: 12px; box-shadow: 0 1px 4px #0001; padding: 18px; margin-bottom: 32px; text-align: center; }
+        .preview-section h2 { margin-top: 0; }
+        #wheelPreview { background: #fff; border-radius: 50%; box-shadow: 0 2px 8px #0001; margin: 0 auto; display: block; }
+        @media (max-width: 900px) {
+            .container { padding: 10px; }
+            .form-row, .segment-card { flex-direction: column; align-items: stretch; }
+        }
+        .main-flex { display: flex; gap: 32px; }
+        .main-content { flex: 1; min-width: 0; }
+        .preview-section {
+            background: #f7f8fa;
+            border-radius: 12px;
+            box-shadow: 0 1px 4px #0001;
+            padding: 18px;
+            margin-bottom: 32px;
+            text-align: center;
+            position: sticky;
+            top: 24px;
+            align-self: flex-start;
+            min-width: 420px;
+            max-width: 420px;
+            height: fit-content;
+            z-index: 10;
+        }
+        @media (max-width: 1100px) {
+            .main-flex { flex-direction: column; }
+            .preview-section { position: static; min-width: 0; max-width: 100%; }
+        }
+    </style>
+    <script src="Winwheel.js"></script>
+</head>
+<body>
+<div class="container">
+    <h1>Glücksrad Einstellungen</h1>
+    <div class="main-flex">
+        <div class="main-content">
+            <div class="tabs">
+                <button class="tab-btn active" onclick="showTab(0)" type="button">Streamerbot</button>
+                <button class="tab-btn" onclick="showTab(1)" type="button">Rad-Einstellungen</button>
+                <button class="tab-btn" onclick="showTab(2)" type="button">Segmente</button>
+            </div>
+            <div class="actions" style="margin-bottom: 18px;">
+                <label style="cursor:pointer;">
+                    <input type="file" id="configFileInput" accept=".js,.json" style="display:none" onchange="loadConfigFile(event)">
+                    <span style="background:#eee; color:#333; border-radius:6px; padding:8px 18px; border:1px solid #ccc; cursor:pointer;">Config laden</span>
+                </label>
+            </div>
+            <form id="settingsForm" autocomplete="off">
+                <div class="tab-content active">
+                    <div class="section">
+                        <h2>Streamerbot</h2>
+                        <div class="form-row">
+                            <label for="actionId">Action ID <span class="tooltip" title="Die Streamerbot-Action-ID, die beim Gewinn ausgelöst wird.">?</span></label>
+                            <input type="text" id="actionId" value="">
+                        </div>
+                    </div>
+                </div>
+                <div class="tab-content">
+                    <div class="section">
+                        <h2>Rad-Einstellungen</h2>
+                        <div class="form-row">
+                            <label for="mode">Modus <span class="tooltip" title="1: Segmentgröße nach Wahrscheinlichkeit. 2: Alle Segmente gleich groß, Wahrscheinlichkeit nur bei Auswahl.">?</span></label>
+                            <select id="mode">
+                                <option value="1">Segmentgröße nach Wahrscheinlichkeit</option>
+                                <option value="2">Gleiche Segmentgröße, Wahrscheinlichkeit bei Auswahl</option>
+                            </select>
+                        </div>
+                        <div class="form-row">
+                            <label for="previewScale">Vorschau-Skalierung (%) <span class="tooltip" title="Nur für die Vorschau, beeinflusst nicht das echte Rad.">?</span></label>
+                            <input type="number" id="previewScale" min="10" max="100" value="50">
+                        </div>
+                        <div class="form-row">
+                            <label for="textPadding">Text-Padding (px) <span class="tooltip" title="Abstand des Textes zum inneren/äußeren Rand">?</span></label>
+                            <input type="number" id="textPadding" value="">
+                        </div>
+                        <div class="form-row">
+                            <label for="blinkDuration">Blinkdauer (ms) <span class="tooltip" title="Wie lange das Gewinnersegment blinkt (in Millisekunden)">?</span></label>
+                            <input type="number" id="blinkDuration" value="">
+                        </div>
+                        <div class="form-row">
+                            <label for="blinkInterval">Blinkintervall (ms) <span class="tooltip" title="Wie schnell das Segment blinkt (in Millisekunden)">?</span></label>
+                            <input type="number" id="blinkInterval" value="">
+                        </div>
+                        <div class="form-row">
+                            <label for="blinkColor">Blinkfarbe <span class="tooltip" title="Blinkfarbe für das Gewinnersegment">?</span></label>
+                            <input type="color" id="blinkColor" value="">
+                        </div>
+                        <div class="form-row">
+                            <label for="outerRadius">Außenradius <span class="tooltip" title="Größe des Rads außen">?</span></label>
+                            <input type="number" id="outerRadius" value="">
+                        </div>
+                        <div class="form-row">
+                            <label for="innerRadius">Innenradius <span class="tooltip" title="Größe des Lochs in der Mitte">?</span></label>
+                            <input type="number" id="innerRadius" value="">
+                        </div>
+                        <div class="form-row">
+                            <label for="lineWidth">Linienstärke <span class="tooltip" title="Dicke der Segmentumrandung">?</span></label>
+                            <input type="number" id="lineWidth" value="">
+                        </div>
+                        <div class="form-row">
+                            <label for="strokeStyle">Umrandungsfarbe <span class="tooltip" title="Farbe der Segmentumrandung">?</span></label>
+                            <input type="color" id="strokeStyle" value="">
+                        </div>
+                        <div class="form-row">
+                            <label for="textAlignment">Textausrichtung <span class="tooltip" title="Ausrichtung des Textes im Segment">?</span></label>
+                            <select id="textAlignment">
+                                <option value="inner">Innen</option>
+                                <option value="outer">Außen</option>
+                                <option value="center">Zentriert</option>
+                            </select>
+                        </div>
+                        <div class="form-row">
+                            <label for="textOrientation">Textausrichtung (Richtung) <span class="tooltip" title="Ausrichtung des Textes (horizontal/vertikal)">?</span></label>
+                            <select id="textOrientation">
+                                <option value="horizontal">Horizontal</option>
+                                <option value="vertical">Vertikal</option>
+                            </select>
+                        </div>
+                        <div class="form-row">
+                            <label for="drawText">Text anzeigen <span class="tooltip" title="Ob Segmenttexte angezeigt werden">?</span></label>
+                            <select id="drawText">
+                                <option value="true">Ja</option>
+                                <option value="false">Nein</option>
+                            </select>
+                        </div>
+                        <div class="form-row">
+                            <label for="drawMode">Zeichenmodus <span class="tooltip" title="Wie das Rad gezeichnet wird (z.B. segmentImage)">?</span></label>
+                            <select id="drawMode">
+                                <option value="segmentImage">Segment-Bild</option>
+                                <option value="image">Bild</option>
+                                <option value="text">Text</option>
+                            </select>
+                        </div>
+                        <div class="form-row">
+                            <label for="imageOverlay">Bildüberlagerung <span class="tooltip" title="Ob das Bild überlagert wird">?</span></label>
+                            <select id="imageOverlay">
+                                <option value="true">Ja</option>
+                                <option value="false">Nein</option>
+                            </select>
+                        </div>
+                        <div class="form-row">
+                            <label for="imageDirection">Bildausrichtung <span class="tooltip" title="Ausrichtung des Bildes im Segment">?</span></label>
+                            <select id="imageDirection">
+                                <option value="S">Süden</option>
+                                <option value="N">Norden</option>
+                                <option value="E">Osten</option>
+                                <option value="W">Westen</option>
+                            </select>
+                        </div>
+                        <div class="form-row">
+                            <label for="pinNumber">Pin-Anzahl <span class="tooltip" title="Wie viele Pins außen am Rad">?</span></label>
+                            <input type="number" id="pinNumber" value="">
+                        </div>
+                        <div class="form-row">
+                            <label for="pinOuterRadius">Pin-Radius <span class="tooltip" title="Größe der Pins">?</span></label>
+                            <input type="number" id="pinOuterRadius" value="">
+                        </div>
+                        <div class="form-row">
+                            <label for="pinMargin">Pin-Abstand <span class="tooltip" title="Abstand der Pins zum Rad">?</span></label>
+                            <input type="number" id="pinMargin" value="">
+                        </div>
+                        <div class="form-row">
+                            <label for="pinFillStyle">Pin-Füllfarbe <span class="tooltip" title="Füllfarbe der Pins">?</span></label>
+                            <input type="color" id="pinFillStyle" value="">
+                        </div>
+                        <div class="form-row">
+                            <label for="pinStrokeStyle">Pin-Umrandung <span class="tooltip" title="Umrandungsfarbe der Pins">?</span></label>
+                            <input type="color" id="pinStrokeStyle" value="">
+                        </div>
+                        <div class="form-row">
+                            <label for="animDuration">Animationsdauer (s) <span class="tooltip" title="Wie lange die Animation dauert (Sekunden)">?</span></label>
+                            <input type="number" id="animDuration" value="">
+                        </div>
+                        <div class="form-row">
+                            <label for="animSpins">Umdrehungen <span class="tooltip" title="Wie oft sich das Rad dreht">?</span></label>
+                            <input type="number" id="animSpins" value="">
+                        </div>
+                    </div>
+                </div>
+                <div class="tab-content">
+                    <div class="section">
+                        <h2>Segmente</h2>
+                        <div class="segment-list" id="segmentList"></div>
+                        <button class="add-segment" type="button" onclick="addSegment()">+ Segment hinzufügen</button>
+                    </div>
+                </div>
+                <div class="actions">
+                    <button type="button" onclick="downloadConfig()">Konfiguration herunterladen</button>
+                </div>
+            </form>
+        </div>
+        <div class="preview-section" id="previewSection" style="display:none;">
+            <h2>Vorschau</h2>
+            <div id="wheelPreviewSVGContainer">
+                <svg id="previewSVG" width="400" height="400"></svg>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+// Tab-Logik
+function showTab(idx) {
+    document.querySelectorAll('.tab-btn').forEach((btn, i) => btn.classList.toggle('active', i === idx));
+    document.querySelectorAll('.tab-content').forEach((tab, i) => tab.classList.toggle('active', i === idx));
+    // Vorschau nur in Tab 1 (Rad) und 2 (Segmente)
+    document.getElementById('previewSection').style.display = (idx === 1 || idx === 2) ? '' : 'none';
+    if (idx === 1 || idx === 2) updatePreview();
+}
+
+// Standardwerte für ein Segment
+const defaultSegment = () => ({
+    image: '',
+    fillStyle: '#d50f25',
+    textFontSize: 16,
+    textFillStyle: 'black',
+    prize: '',
+    message: '',
+    text: '',
+    probability: 0
+});
+
+let segments = [
+    { image: '', fillStyle: '#d50f25', textFontSize: 16, textFillStyle: 'black', prize: '', message: '', text: '', probability: 0 }
+];
+
+let previewWheel = null;
+
+function renderSegments() {
+    const list = document.getElementById('segmentList');
+    list.innerHTML = '';
+    segments.forEach((seg, idx) => {
+        const div = document.createElement('div');
+        div.className = 'segment-card';
+        div.innerHTML = `
+            <label>Name: <input type="text" value="${seg.prize}" onchange="segments[${idx}].prize=this.value; updatePreview()"></label>
+            <label>Text: <input type="text" value="${seg.message}" onchange="segments[${idx}].message=this.value; updatePreview()"></label>
+            <label>Extra-Text: <input type="text" value="${seg.text}" onchange="segments[${idx}].text=this.value; updatePreview()"></label>
+            <label>Textgröße: <input type="number" min="8" max="48" value="${seg.textFontSize}" onchange="segments[${idx}].textFontSize=parseInt(this.value); updatePreview()"></label>
+            <label>Farbe: <input type="color" value="${seg.fillStyle}" onchange="segments[${idx}].fillStyle=this.value; updatePreview()"></label>
+            <label>Textfarbe: <input type="color" value="${seg.textFillStyle}" onchange="segments[${idx}].textFillStyle=this.value; updatePreview()"></label>
+            <label>Wahrscheinlichkeit: <input type="number" min="1" value="${seg.probability}" onchange="segments[${idx}].probability=parseInt(this.value); updatePreview()"></label>
+            <label>Bild: <input type="file" accept="image/*" onchange="handleImageUpload(event, ${idx})"></label>
+            <img class="img-preview" id="imgPreview${idx}" src="${seg.image && seg.image.startsWith('data:') ? seg.image : ''}" alt="" />
+            ${seg.image && !seg.image.startsWith('data:') ? '<span style="color:#c0392b;font-size:0.95em;">(Bild muss neu ausgewählt werden)</span>' : ''}
+            <button type="button" onclick="removeSegment(${idx})">Entfernen</button>
+        `;
+        list.appendChild(div);
+    });
+}
+
+function handleImageUpload(event, idx) {
+    const file = event.target.files[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            segments[idx].image = e.target.result;
+            document.getElementById('imgPreview'+idx).src = e.target.result;
+            updatePreview();
+        };
+        reader.readAsDataURL(file);
+    }
+}
+
+function addSegment() {
+    segments.push(defaultSegment());
+    renderSegments();
+    updatePreview();
+}
+function removeSegment(idx) {
+    segments.splice(idx, 1);
+    renderSegments();
+    updatePreview();
+}
+
+// Vorschau-Funktion (SVG)
+function updatePreview() {
+    const svg = document.getElementById('previewSVG');
+    svg.innerHTML = '';
+
+    const scaleFactor = (parseInt(document.getElementById('previewScale')?.value) || 50) / 100;
+    const outerRadius = (parseInt(document.getElementById('outerRadius').value) || 180) * scaleFactor;
+    const innerRadius = (parseInt(document.getElementById('innerRadius').value) || 60) * scaleFactor;
+    const center = 200; // SVG ist 400x400
+
+    // Einstellungen holen
+    const drawText = document.getElementById('drawText').value === 'true';
+    const drawMode = document.getElementById('drawMode').value || 'segmentImage';
+    const imageOverlay = document.getElementById('imageOverlay').value === 'true';
+    const imageDirection = document.getElementById('imageDirection').value || 'S';
+    const textAlignment = document.getElementById('textAlignment').value || 'inner';
+    const textOrientation = document.getElementById('textOrientation').value || 'horizontal';
+    const textPadding = parseInt(document.getElementById('textPadding')?.value) || 16;
+    const lineWidth = parseInt(document.getElementById('lineWidth').value) || 2;
+    const strokeStyle = document.getElementById('strokeStyle').value || '#6441a5';
+
+    // Segmente berechnen
+    let previewSegments = JSON.parse(JSON.stringify(segments));
+    const mode = parseInt(document.getElementById('mode').value) || 1;
+    if (mode === 1) {
+        const totalProb = previewSegments.reduce((sum, s) => sum + s.probability, 0) || 1;
+        previewSegments.forEach(s => s.size = 360 * (s.probability / totalProb));
+    } else {
+        const equalSize = 360 / previewSegments.length;
+        previewSegments.forEach(s => s.size = equalSize);
+    }
+
+    // Segmente zeichnen
+    let startAngle = 0;
+    previewSegments.forEach((seg, idx) => {
+        const endAngle = startAngle + seg.size;
+        const largeArc = seg.size > 180 ? 1 : 0;
+        const x1 = center + outerRadius * Math.cos(Math.PI * startAngle / 180);
+        const y1 = center + outerRadius * Math.sin(Math.PI * startAngle / 180);
+        const x2 = center + outerRadius * Math.cos(Math.PI * endAngle / 180);
+        const y2 = center + outerRadius * Math.sin(Math.PI * endAngle / 180);
+
+        const pathData = [
+            `M ${center} ${center}`,
+            `L ${x1} ${y1}`,
+            `A ${outerRadius} ${outerRadius} 0 ${largeArc} 1 ${x2} ${y2}`,
+            'Z'
+        ].join(' ');
+
+        // Segment-Hintergrund
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', pathData);
+        path.setAttribute('fill', seg.fillStyle || '#ccc');
+        path.setAttribute('stroke', strokeStyle);
+        path.setAttribute('stroke-width', lineWidth);
+        svg.appendChild(path);
+
+        // Bild im Segment (drawMode)
+        if (seg.image && seg.image.startsWith('data:')) {
+            // Platzierung auf Segmentmitte (Kreisbogen)
+            const angle = (startAngle + endAngle) / 2;
+            const imgSize = outerRadius * 0.5;
+            const imgX = center + (outerRadius * 0.7) * Math.cos(Math.PI * angle / 180);
+            const imgY = center + (outerRadius * 0.7) * Math.sin(Math.PI * angle / 180);
+            // Rotation wie in Winwheel.js: Bild zeigt immer nach außen, zusätzlich -90 Grad
+            let dir = seg.imageDirection || imageDirection;
+            let rotation = 0;
+            if (dir === 'S') rotation = angle + 180 - 90;
+            else if (dir === 'E') rotation = angle + 90 - 90;
+            else if (dir === 'W') rotation = angle - 90 - 90;
+            else rotation = angle - 90; // 'N' oder Standard
+            const imgDrawX = imgX - imgSize / 2;
+            const imgDrawY = imgY - imgSize / 2;
+            const image = document.createElementNS('http://www.w3.org/2000/svg', 'image');
+            image.setAttributeNS('http://www.w3.org/1999/xlink', 'href', seg.image);
+            image.setAttribute('x', imgDrawX);
+            image.setAttribute('y', imgDrawY);
+            image.setAttribute('width', imgSize);
+            image.setAttribute('height', imgSize);
+            // Rotation um die Bildmitte auf dem Segment
+            image.setAttribute('transform', `rotate(${rotation},${imgX},${imgY})`);
+            // Debug-Tooltip
+            image.setAttribute('title', `Segment: ${seg.prize || seg.message || ''}\nRichtung: ${dir}\nWinkel: ${rotation.toFixed(2)}\nimgX: ${imgX.toFixed(2)}\nimgY: ${imgY.toFixed(2)}`);
+            // drawMode: segmentImage = Bild im Segment, image = Bild ohne Segmentfarbe, text = kein Bild
+            if (drawMode === 'segmentImage') {
+                if (!imageOverlay) {
+                    // Segmentfarbe ausblenden, Bild als Füllung
+                    path.setAttribute('fill', 'none');
+                }
+                svg.appendChild(image);
+            } else if (drawMode === 'image') {
+                // Nur Bild, kein Segment-Hintergrund
+                path.setAttribute('fill', 'none');
+                svg.appendChild(image);
+            }
+            // drawMode text: kein Bild
+        }
+
+        // Text (zentriert im Segment)
+        if (drawText && drawMode !== 'image') {
+            const angle = (startAngle + endAngle) / 2;
+            // Textposition je nach Alignment
+            let textRadius = (outerRadius + innerRadius) / 2;
+            if (textAlignment === 'inner') textRadius = innerRadius + textPadding * scaleFactor;
+            else if (textAlignment === 'outer') textRadius = outerRadius - textPadding * scaleFactor;
+            // Textausrichtung
+            let textAnchor = 'middle';
+            let rotate = angle;
+            if (textOrientation === 'vertical') {
+                rotate += 90;
+            }
+            const textX = center + textRadius * Math.cos(Math.PI * angle / 180);
+            const textY = center + textRadius * Math.sin(Math.PI * angle / 180);
+            const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            text.setAttribute('x', textX);
+            text.setAttribute('y', textY);
+            text.setAttribute('fill', seg.textFillStyle || 'black');
+            text.setAttribute('font-size', (seg.textFontSize || 16) * scaleFactor);
+            text.setAttribute('text-anchor', textAnchor);
+            text.setAttribute('dominant-baseline', 'middle');
+            text.setAttribute('transform', `rotate(${rotate},${textX},${textY})`);
+            text.textContent = seg.prize || seg.message || '';
+            svg.appendChild(text);
+        }
+
+        startAngle = endAngle;
+    });
+
+    // Loch in der Mitte
+    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    circle.setAttribute('cx', center);
+    circle.setAttribute('cy', center);
+    circle.setAttribute('r', innerRadius);
+    circle.setAttribute('fill', '#fff');
+    svg.appendChild(circle);
+
+    // Pins zeichnen
+    const pinNumber = parseInt(document.getElementById('pinNumber').value) || 0;
+    const pinOuterRadius = parseInt(document.getElementById('pinOuterRadius').value) || 0;
+    const pinMargin = parseInt(document.getElementById('pinMargin').value) || 0;
+    const pinFillStyle = document.getElementById('pinFillStyle').value || '#000';
+    const pinStrokeStyle = document.getElementById('pinStrokeStyle').value || '#333';
+    if (pinNumber > 0 && pinOuterRadius > 0) {
+        for (let i = 0; i < pinNumber; i++) {
+            const angle = (360 / pinNumber) * i;
+            const rad = Math.PI * angle / 180;
+            const r = outerRadius + pinMargin + pinOuterRadius;
+            const pinX = center + r * Math.cos(rad);
+            const pinY = center + r * Math.sin(rad);
+            const pin = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            pin.setAttribute('cx', pinX);
+            pin.setAttribute('cy', pinY);
+            pin.setAttribute('r', pinOuterRadius);
+            pin.setAttribute('fill', pinFillStyle);
+            pin.setAttribute('stroke', pinStrokeStyle);
+            pin.setAttribute('stroke-width', 1);
+            svg.appendChild(pin);
+        }
+    }
+}
+
+function downloadConfig() {
+    // Hilfsfunktion für robustes Auslesen
+    function getFieldValue(id, fallback = '') {
+        const el = document.getElementById(id);
+        return el ? el.value : fallback;
+    }
+    // Allgemein
+    const actionId = getFieldValue('actionId').trim();
+    const mode = parseInt(getFieldValue('mode'));
+    // Blink
+    const blinkDuration = parseInt(getFieldValue('blinkDuration'));
+    const blinkInterval = parseInt(getFieldValue('blinkInterval'));
+    const blinkColor = getFieldValue('blinkColor');
+    // Wheel
+    const outerRadius = parseInt(getFieldValue('outerRadius'));
+    const innerRadius = parseInt(getFieldValue('innerRadius'));
+    const lineWidth = parseInt(getFieldValue('lineWidth'));
+    const strokeStyle = getFieldValue('strokeStyle');
+    // const textFontSize = parseInt(getFieldValue('textFontSize')); // entfernt
+    const textAlignment = getFieldValue('textAlignment');
+    const textOrientation = getFieldValue('textOrientation');
+    const drawText = getFieldValue('drawText') === 'true';
+    const drawMode = getFieldValue('drawMode');
+    const imageOverlay = getFieldValue('imageOverlay') === 'true';
+    const imageDirection = getFieldValue('imageDirection');
+    // const pointerAngle = parseInt(getFieldValue('pointerAngle')); // entfernt
+    // Pins
+    const pinNumber = parseInt(getFieldValue('pinNumber'));
+    const pinOuterRadius = parseInt(getFieldValue('pinOuterRadius'));
+    const pinMargin = parseInt(getFieldValue('pinMargin'));
+    const pinFillStyle = getFieldValue('pinFillStyle');
+    const pinStrokeStyle = getFieldValue('pinStrokeStyle');
+    // Animation
+    const animDuration = parseInt(getFieldValue('animDuration'));
+    const animSpins = parseInt(getFieldValue('animSpins'));
+
+    const config =
+`// Streamerbot Action ID für Gewinn-Benachrichtigung
+const ACTION_ID = '${actionId}';
+
+// Blink-Einstellungen für Gewinnersegment
+const blinkConfig = {
+    duration: ${blinkDuration},
+    interval: ${blinkInterval},
+    color: '${blinkColor}'
+};
+
+// Rad-Modus
+const wheelMode = {
+    mode: ${mode} // 1 = Segmentgröße basierend auf Wahrscheinlichkeit, 2 = Gleiche Segmentgröße
+};
+
+// Wheel-Konfiguration
+const wheelConfig = {
+    numSegments: 0,
+    lineWidth: ${lineWidth},
+    strokeStyle: '${strokeStyle}',
+    outerRadius: ${outerRadius},
+    innerRadius: ${innerRadius},
+    // textFontSize entfernt
+    textAlignment: '${textAlignment}',
+    textOrientation: '${textOrientation}',
+    rotationAngle: 0,
+    drawText: ${drawText},
+    drawMode: '${drawMode}',
+    imageOverlay: ${imageOverlay},
+    imageDirection: '${imageDirection}',
+    // pointerAngle entfernt
+    animation: {
+        type: 'spinToStop',
+        duration: ${animDuration},
+        spins: ${animSpins},
+        callbackFinished: null,
+        callbackAfter: null
+    },
+    pins: {
+        number: ${pinNumber},
+        outerRadius: ${pinOuterRadius},
+        margin: ${pinMargin},
+        fillStyle: '${pinFillStyle}',
+        strokeStyle: '${pinStrokeStyle}'
+    },
+    textPadding: ${parseInt(getFieldValue('textPadding') || 16)},
+};
+
+// Segment-Definitionen
+const priceSegment = [
+${segments.map(seg => `    {
+        image: '${seg.image}',
+        fillStyle: '${seg.fillStyle}',
+        textFontSize: ${seg.textFontSize},
+        textFillStyle: '${seg.textFillStyle}',
+        prize: '${seg.prize}',
+        message: '${seg.message}',
+        text: '${seg.text}',
+        size: 0,
+        probability: ${seg.probability}
+    }`).join(',\n')}
+];
+
+// Exportiere die Konfiguration
+window.wheelConfig = wheelConfig;
+window.priceSegment = priceSegment;
+window.blinkConfig = blinkConfig;
+window.wheelMode = wheelMode;
+`;
+    const blob = new Blob([config], {type: 'text/javascript'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'config.js';
+    a.click();
+}
+
+function loadConfigFile(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        let text = e.target.result;
+        // Versuche, window.xyz = xyz zu entfernen und nur das JS-Objekt zu parsen
+        text = text.replace(/window\.[a-zA-Z0-9_]+\s*=\s*/g, '');
+        try {
+            // Füge den Code als <script>-Tag ein, damit die Variablen global werden
+            const script = document.createElement('script');
+            script.textContent = text;
+            document.body.appendChild(script);
+            // Werte übernehmen
+            if (typeof wheelConfig !== 'undefined') {
+                function setField(id, value, fallback = 0) {
+                    const el = document.getElementById(id);
+                    if (el) el.value = (value !== null && value !== undefined) ? value : fallback;
+                }
+                setField('outerRadius', wheelConfig.outerRadius);
+                setField('innerRadius', wheelConfig.innerRadius);
+                setField('lineWidth', wheelConfig.lineWidth);
+                setField('strokeStyle', wheelConfig.strokeStyle);
+                setField('textAlignment', wheelConfig.textAlignment, 'inner');
+                setField('textOrientation', wheelConfig.textOrientation, 'horizontal');
+                setField('drawText', String(wheelConfig.drawText), 'true');
+                setField('drawMode', wheelConfig.drawMode, 'segmentImage');
+                setField('imageOverlay', String(wheelConfig.imageOverlay), 'false');
+                setField('imageDirection', wheelConfig.imageDirection, 'S');
+                if (wheelConfig.pins) {
+                    setField('pinNumber', wheelConfig.pins.number);
+                    setField('pinOuterRadius', wheelConfig.pins.outerRadius);
+                    setField('pinMargin', wheelConfig.pins.margin);
+                    setField('pinFillStyle', wheelConfig.pins.fillStyle);
+                    setField('pinStrokeStyle', wheelConfig.pins.strokeStyle);
+                }
+                if (wheelConfig.animation) {
+                    setField('animDuration', wheelConfig.animation.duration);
+                    setField('animSpins', wheelConfig.animation.spins);
+                }
+                if (typeof wheelConfig.textPadding !== 'undefined') {
+                    setField('textPadding', wheelConfig.textPadding);
+                }
+            }
+            if (typeof blinkConfig !== 'undefined') {
+                document.getElementById('blinkDuration').value = blinkConfig.duration;
+                document.getElementById('blinkInterval').value = blinkConfig.interval;
+                document.getElementById('blinkColor').value = blinkConfig.color;
+            }
+            if (typeof wheelMode !== 'undefined') {
+                document.getElementById('mode').value = wheelMode.mode;
+            }
+            if (typeof ACTION_ID !== 'undefined') {
+                document.getElementById('actionId').value = ACTION_ID;
+            }
+            if (typeof priceSegment !== 'undefined') {
+                segments = priceSegment.map(seg => ({
+                    image: seg.image || '',
+                    fillStyle: seg.fillStyle || '#d50f25',
+                    textFontSize: seg.textFontSize || 16,
+                    textFillStyle: seg.textFillStyle || 'black',
+                    prize: seg.prize || '',
+                    message: seg.message || '',
+                    text: seg.text || '',
+                    probability: seg.probability !== undefined ? seg.probability : 0
+                }));
+                renderSegments();
+            }
+            updatePreview();
+            alert('Config erfolgreich geladen!');
+        } catch (err) {
+            alert('Fehler beim Laden der Config: ' + err.message);
+        }
+    };
+    reader.readAsText(file);
+}
+
+// Initiales Rendern
+renderSegments();
+updatePreview();
+// Vorschau bei Änderung der Einstellungen aktualisieren
+[...document.querySelectorAll('input,select')].forEach(el => el.addEventListener('change', updatePreview));
+document.getElementById('previewScale').addEventListener('change', updatePreview);
+</script>
+</body>
+</html> 

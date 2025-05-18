@@ -1,0 +1,24 @@
+1. Installiere folgende Plugins für OBS
+a) Source Copy (https://obsproject.com/forum/resources/source-copy.1261/)
+b) Move Transition (https://obsproject.com/forum/resources/move-transition.913/)
+
+2. OBS
+Importiere durch Klicken auf Werkzeuge --> Source Copy --> Load Scene 
+die Datei "import_OBS.json". 
+
+3. StreamerBot
+Öffne die Datei "import_SB.txt" und kopiere den ganzen String.
+Klicke nun im StreamerBot aus "Import" und füge den Strin nun ein.
+Importiere die Actions.
+
+Klicke nun in den Tab "Actions" und mach einen Rechtsklick auf die Action "Roulette Answer".
+Wähle "Copy Action ID" aus. 
+
+Öffne nun die Datei "index.html" mit UltraEdit, Notepad++ oder einem anderen Editor und tausche die ActionID in Zeile 38 aus.
+Im Index sind auch weitere Settings genauer beschrieben.
+
+Wichtig, wenn du Spin-Dauer etc. anpasst musst du auch die Action "Roulette Redeem" entsprechend anpassen.
+Wenn euch die Textausgabe nicht gefällt, dann könnt ihr auch eure Images so bearbeiten, dass die Texte da enthalten sind. Dann lasst ihr den text einfach text = ''.
+
+Der verwendete Code kommt aus folgendem Projekt: http://dougtesting.net/home
+Dort werden einige Beispiele gezeigt und ihr könnt eurer Glücksrad beliebig erweitern.
