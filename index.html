@@ -307,29 +307,7 @@ const priceSegment = [
 			
 			function calculatePrize()
 			{
-				let countAngle = [];
-				let sum = 0;
-				let sumPerc = 0;
-				let sectorBegin = 0;
-				let sectorEnd = 0;
-				let targetAngle = 0;
-				
-				// Debug-Ausgabe der Segmentgrößen
-				for (let x = 1; x <= theWheel.numSegments; x++) {
-					countAngle[x] = theWheel.segments[x].size;
-					
-				}
-				
-				// Berechne Summen
-				for (let i = 1; i <= theWheel.numSegments; i++) {
-					sum += countAngle[i];
-					sumPerc += winwheelDegreesToPercent(countAngle[i]);
-				}
-				console.log('Gesamtsumme:', sum, 'Gesamtprozente:', sumPerc);
-
 				const randomSegmentIndex = getRandomSegmentIndex(priceSegment);
-				
-				
 				
 				// Überprüfe, ob das Segment existiert
 				if (randomSegmentIndex + 1 > theWheel.numSegments) {
@@ -337,18 +315,49 @@ const priceSegment = [
 					return;
 				}
 				
-				sectorBegin = theWheel.segments[randomSegmentIndex + 1].startAngle + 1;
-				sectorEnd = theWheel.segments[randomSegmentIndex + 1].endAngle - 1;
+				// Berechne den Zielwinkel für das ausgewählte Segment
+				const sectorBegin = theWheel.segments[randomSegmentIndex + 1].startAngle + 1;
+				const sectorEnd = theWheel.segments[randomSegmentIndex + 1].endAngle - 1;
+				const randomOffset = Math.random() * (sectorEnd - sectorBegin) + sectorBegin;
 				
-				console.log('Sektor-Bereich:', sectorBegin, sectorEnd);
+				// Debug-Ausgaben
+				const currentAngle = theWheel.getRotationPosition();
+				console.log('Aktuelle Position:', currentAngle);
+				console.log('Ausgewähltes Segment:', randomSegmentIndex + 1);
+				console.log('Sektor-Bereich:', sectorBegin, 'bis', sectorEnd);
+				console.log('Zufälliger Offset:', randomOffset);
 				
-				targetAngle = Math.random() * (sectorEnd - sectorBegin) + sectorBegin;
-				console.log('Zielwinkel:', targetAngle);
+				// Stoppe aktuelle Animation falls vorhanden
+				if (theWheel.isSpinning) {
+					theWheel.stopAnimation(false);
+				}
 
-				theWheel.animation.stopAngle = targetAngle;
+				// Setze die dynamischen Werte
+				wheelConfig.numSegments = priceSegment.length;
+				wheelConfig.rotationAngle = currentAngle;
+				wheelConfig.animation.callbackFinished = alertPrize;
+				wheelConfig.animation.callbackAfter = drawColourTriangle;
+				
+				// Erstelle das Wheel neu
+				theWheel = new Winwheel({
+					...wheelConfig,
+					segments: priceSegment
+				});
+				
+				// Setze den Zielwinkel
+				theWheel.animation.stopAngle = randomOffset;
+				
+				// Debug-Ausgabe der Animation-Parameter
+				console.log('Animation-Parameter:', {
+					currentAngle: currentAngle,
+					targetAngle: randomOffset,
+					spins: wheelConfig.animation.spins,
+					duration: wheelConfig.animation.duration
+				});
 				
 				drawColourTriangle();
 				
+				// Starte die Animation
 				theWheel.startAnimation();
 				
 				// Sende das Ergebnis an Streamerbot
@@ -363,7 +372,7 @@ const priceSegment = [
 						gewinnText: priceSegment[randomSegmentIndex].message
 					}
 				}));
-			}			
+			}
 			
 			function startSpin()
 			{
@@ -404,9 +413,10 @@ const priceSegment = [
 				theWheel.draw();
 				drawColourTriangle();
 
+				// Speichere die aktuelle Position
 				let anglePos = theWheel.getRotationPosition();
 				const jsonData = { "Deg": anglePos };
-				localStorage.setItem("lastAngle", JSON.stringify(jsonData));    
+				localStorage.setItem("lastAngle", JSON.stringify(jsonData));
 			}
 
 			// Initialisiere die Websocket-Verbindung erst nach der Wheel-Erstellung
