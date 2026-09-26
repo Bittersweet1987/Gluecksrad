@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Glücksrad</title>
+<style>
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+  #stage { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+           opacity: 0; transition: opacity .6s ease; }
+  #stage.visible { opacity: 1; }
+  canvas { display: block; }
+  #banner { position: absolute; left: 50%; bottom: 4%; transform: translateX(-50%) scale(.8);
+            padding: .5em 1.2em; border-radius: .6em; background: rgba(0,0,0,.75); color: #fff;
+            font: 700 clamp(18px, 4.2vmin, 48px)/1.2 "Segoe UI", Arial, sans-serif; text-align: center;
+            max-width: 90%; opacity: 0; transition: opacity .4s ease, transform .4s ease; white-space: pre-line; }
+  #banner.visible { opacity: 1; transform: translateX(-50%) scale(1); }
+  #status { position: absolute; left: 8px; top: 8px; font: 12px/1.3 Consolas, monospace; color: #fff;
+            background: rgba(180,0,0,.7); padding: 3px 6px; border-radius: 4px; display: none; }
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="wheel"></canvas><div id="banner"></div></div>
+<div id="status"></div>
+<script>
+// Von "Glücksrad – Einstellungen" beim Speichern ersetzt. Ohne Ersetzung gelten URL-Parameter.
+const BOOT = /*GR_BOOT*/null/*GR_BOOT_END*/;
+
+(function () {
+  'use strict';
+
+  const params = new URLSearchParams(location.search);
+  const boot = BOOT || {};
+  const WHEEL_ID = boot.wheelId || params.get('wheel') || '';
+  const WS_HOST = boot.host || params.get('host') || '127.0.0.1';
+  const WS_PORT = boot.port || params.get('port') || '8080';
+  const RESULT_ACTION_ID = boot.resultActionId || 'a7f3c2e1-5b4d-4e8a-9c1f-2d3e4f5a6b72';
+  const RESULT_ACTION_NAME = boot.resultActionName || 'Glücksrad – Ergebnis';
+  const DEMO = params.get('demo') === '1';
+
+  const canvas = document.getElementById('wheel');
+  const ctx = canvas.getContext('2d');
+  const stage = document.getElementById('stage');
+  const banner = document.getElementById('banner');
+  const statusEl = document.getElementById('status');
+
+  const DEFAULT_LOOK = {
+    spinSeconds: 12, spins: 8, borderColor: '#ffffff', borderWidth: 6, pointerColor: '#ffcc00',
+    centerColor: '#ffffff', proportional: true, fontSize: 28, showBanner: true, holdSeconds: 6,
+    idleVisible: false, tick: true, volume: 0.5
+  };
+
+  let wheel = boot.wheel || null;       // aktuelle Rad-Konfiguration
+  let rotation = 0;                     // Grad, im Uhrzeigersinn
+  let spinning = false;
+  let highlight = -1;                   // Index des blinkenden Gewinnfelds
+  let blinkOn = false;
+  const queue = [];
+  const imageCache = {};
+
+  function look() { return Object.assign({}, DEFAULT_LOOK, (wheel && wheel.look) || {}); }
+
+  // ---------- Geometrie ----------
+  function segmentAngles(w) {
+    const segs = (w && w.segments) || [];
+    const prop = look().proportional;
+    const weights = segs.map(s => prop ? Math.max(0, +s.weight || 0) : 1);
+    let total = weights.reduce((a, b) => a + b, 0);
+    if (total <= 0) { weights.fill(1); total = weights.length || 1; }
+    let start = 0;
+    return weights.map(wt => { const size = wt / total * 360; const r = { start, size }; start += size; return r; });
+  }
+
+  // ---------- Zeichnen ----------
+  function resize() {
+    const dim = Math.min(window.innerWidth, window.innerHeight);
+    const dpr = window.devicePixelRatio || 1;
+    canvas.style.width = canvas.style.height = dim + 'px';
+    canvas.width = canvas.height = Math.round(dim * dpr);
+    draw();
+  }
+
+  function getImage(src) {
+    if (!src) return null;
+    let img = imageCache[src];
+    if (!img) { img = new Image(); img.onload = draw; img.src = src; imageCache[src] = img; }
+    return img.complete && img.naturalWidth ? img : null;
+  }
+
+  function draw() {
+    const W = canvas.width, c = W / 2;
+    ctx.clearRect(0, 0, W, W);
+    if (!wheel || !wheel.segments || !wheel.segments.length) return;
+    const L = look();
+    const scale = W / 1000;
+    const R = 440 * scale;             // Radius des Rads
+    const angles = segmentAngles(wheel);
+
+    ctx.save();
+    ctx.translate(c, c);
+    ctx.rotate(rotation * Math.PI / 180);
+
+    wheel.segments.forEach((seg, i) => {
+      const a = angles[i];
+      if (a.size <= 0) return;
+      // 0° = oben (Zeiger), im Uhrzeigersinn
+      const a0 = (a.start - 90) * Math.PI / 180;
+      const a1 = (a.start + a.size - 90) * Math.PI / 180;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.arc(0, 0, R, a0, a1);
+      ctx.closePath();
+      ctx.fillStyle = (i === highlight && blinkOn) ? '#ffffff' : (seg.color || '#888888');
+      ctx.fill();
+      ctx.lineWidth = Math.max(1, 2 * scale);
+      ctx.strokeStyle = L.borderColor;
+      ctx.stroke();
+
+      const mid = (a.start + a.size / 2 - 90) * Math.PI / 180;
+      ctx.save();
+      ctx.rotate(mid);
+      const img = getImage(seg.image);
+      const hasText = seg.text && String(seg.text).trim() !== '';
+      if (img) {
+        // Bild zeigt mit der Oberkante nach außen, Größe an die Segmentbreite angepasst
+        const arcW = 2 * R * 0.62 * Math.sin(Math.min(a.size, 170) / 2 * Math.PI / 180);
+        const maxW = Math.min(arcW, R * 0.5);
+        const ratio = img.naturalHeight / img.naturalWidth;
+        let w = maxW, h = maxW * ratio;
+        if (h > R * 0.45) { h = R * 0.45; w = h / ratio; }
+        const dist = hasText ? R * 0.68 : R * 0.62;
+        ctx.save();
+        ctx.translate(dist, 0);
+        ctx.rotate(Math.PI / 2);
+        ctx.drawImage(img, -w / 2, -h / 2, w, h);
+        ctx.restore();
+      }
+      if (hasText) {
+        let fs = (+L.fontSize || 28) * scale;
+        ctx.font = `700 ${fs}px "Segoe UI", Arial, sans-serif`;
+        const maxLen = R * (img ? 0.42 : 0.72);
+        while (ctx.measureText(seg.text).width > maxLen && fs > 10 * scale) {
+          fs -= 1 * scale; ctx.font = `700 ${fs}px "Segoe UI", Arial, sans-serif`;
+        }
+        ctx.fillStyle = seg.textColor || '#000000';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.lineWidth = Math.max(2, fs / 7);
+        ctx.strokeStyle = 'rgba(0,0,0,.35)';
+        const tx = img ? R * 0.45 : R * 0.9;
+        ctx.fillText(seg.text, tx, 0);
+      }
+      ctx.restore();
+    });
+    ctx.restore();
+
+    // Außenring
+    ctx.beginPath();
+    ctx.arc(c, c, R, 0, Math.PI * 2);
+    ctx.lineWidth = (+L.borderWidth || 6) * scale;
+    ctx.strokeStyle = L.borderColor;
+    ctx.stroke();
+
+    // Nabe
+    ctx.beginPath();
+    ctx.arc(c, c, 50 * scale, 0, Math.PI * 2);
+    ctx.fillStyle = L.centerColor;
+    ctx.fill();
+    ctx.lineWidth = 4 * scale;
+    ctx.strokeStyle = L.borderColor;
+    ctx.stroke();
+
+    // Zeiger oben
+    const tipY = c - R + 38 * scale;
+    ctx.beginPath();
+    ctx.moveTo(c, tipY);
+    ctx.lineTo(c - 32 * scale, c - R - 32 * scale);
+    ctx.lineTo(c + 32 * scale, c - R - 32 * scale);
+    ctx.closePath();
+    ctx.fillStyle = L.pointerColor;
+    ctx.shadowColor = 'rgba(0,0,0,.5)';
+    ctx.shadowBlur = 8 * scale;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.lineWidth = 3 * scale;
+    ctx.strokeStyle = 'rgba(0,0,0,.6)';
+    ctx.stroke();
+  }
+
+  // ---------- Sound ----------
+  let audioCtx = null;
+  function tick() {
+    const L = look();
+    if (!L.tick) return;
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      const t = audioCtx.currentTime;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(1400, t);
+      osc.frequency.exponentialRampToValueAtTime(500, t + 0.03);
+      gain.gain.setValueAtTime(0.15 * (+L.volume || 0), t);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.04);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start(t);
+      osc.stop(t + 0.05);
+    } catch (e) { /* kein Audio verfügbar */ }
+  }
+
+  function playSound(src) {
+    if (!src) return;
+    try { const a = new Audio(src); a.volume = Math.min(1, Math.max(0, +look().volume || 0.5)); a.play().catch(() => {}); }
+    catch (e) { /* ignorieren */ }
+  }
+
+  // ---------- Ablauf ----------
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+  function segmentIndexAt(rot) {
+    // Welches Segment liegt unter dem Zeiger (oben)?
+    const pos = ((360 - (rot % 360)) % 360 + 360) % 360;
+    const angles = segmentAngles(wheel);
+    for (let i = 0; i < angles.length; i++) {
+      if (pos >= angles[i].start && pos < angles[i].start + angles[i].size) return i;
+    }
+    return angles.length - 1;
+  }
+
+  function animateTo(target, seconds) {
+    return new Promise(resolve => {
+      const from = rotation;
+      const dist = target - from;
+      const dur = Math.max(1, seconds) * 1000;
+      const t0 = performance.now();
+      let lastSeg = segmentIndexAt(from);
+      function frame(now) {
+        const p = Math.min(1, (now - t0) / dur);
+        const e = 1 - Math.pow(1 - p, 4);  // easeOutQuart
+        rotation = from + dist * e;
+        const s = segmentIndexAt(rotation);
+        if (s !== lastSeg) { lastSeg = s; tick(); }
+        draw();
+        if (p < 1) requestAnimationFrame(frame); else resolve();
+      }
+      requestAnimationFrame(frame);
+    });
+  }
+
+  async function runSpin(job) {
+    spinning = true;
+    wheel = job.wheel;
+    highlight = -1;
+    rotation = ((rotation % 360) + 360) % 360;
+    draw();
+    stage.classList.add('visible');
+    await sleep(900);
+
+    const L = look();
+    const angles = segmentAngles(wheel);
+    const idx = Math.min(Math.max(0, job.targetIndex | 0), angles.length - 1);
+    const a = angles[idx];
+    const pad = a.size * 0.12;
+    const stopAt = a.start + pad + Math.random() * Math.max(0, a.size - 2 * pad);
+    // Rotation, bei der stopAt unter dem Zeiger (0°) liegt
+    const finalMod = (360 - stopAt) % 360;
+    const base = rotation - (rotation % 360);
+    let target = base + (+L.spins || 8) * 360 + finalMod;
+    if (target - rotation < 720) target += 360;
+    await animateTo(target, +L.spinSeconds || 12);
+
+    const seg = wheel.segments[idx] || {};
+    playSound(seg.sound);
+    highlight = idx;
+    const blink = setInterval(() => { blinkOn = !blinkOn; draw(); }, 300);
+    if (L.showBanner) {
+      const label = (seg.text && seg.text.trim()) || seg.name || ('Feld ' + (idx + 1));
+      banner.textContent = (job.user ? job.user + ' gewinnt:\n' : 'Gewonnen:\n') + label;
+      banner.classList.add('visible');
+    }
+    reportResult(job, idx);
+
+    await sleep(Math.max(1, +L.holdSeconds || 6) * 1000);
+    clearInterval(blink);
+    blinkOn = false;
+    highlight = -1;
+    banner.classList.remove('visible');
+    draw();
+    if (!L.idleVisible) { stage.classList.remove('visible'); await sleep(700); }
+    spinning = false;
+    next();
+  }
+
+  function next() {
+    if (spinning || !queue.length) return;
+    runSpin(queue.shift());
+  }
+
+  function enqueue(job) {
+    if (!job || !job.wheel || !job.wheel.segments || !job.wheel.segments.length) return;
+    queue.push(job);
+    next();
+  }
+
+  // ---------- Streamer.bot WebSocket ----------
+  let ws = null;
+  function setStatus(text) {
+    statusEl.textContent = text || '';
+    statusEl.style.display = text ? 'block' : 'none';
+  }
+
+  function connect() {
+    try { ws = new WebSocket(`ws://${WS_HOST}:${WS_PORT}/`); }
+    catch (e) { setStatus('Glücksrad: WebSocket-Fehler'); setTimeout(connect, 5000); return; }
+    ws.onopen = () => {
+      setStatus('');
+      ws.send(JSON.stringify({ request: 'Subscribe', id: 'gr-sub', events: { General: ['Custom'] } }));
+    };
+    ws.onmessage = ev => handleMessage(ev.data);
+    ws.onclose = () => {
+      setStatus(`Glücksrad: keine Verbindung zu Streamer.bot (${WS_HOST}:${WS_PORT})`);
+      setTimeout(connect, 3000);
+    };
+    ws.onerror = () => { try { ws.close(); } catch (e) { /* ignorieren */ } };
+  }
+
+  function handleMessage(raw) {
+    let msg;
+    try { msg = JSON.parse(raw); } catch (e) { return; }
+    if (!msg || !msg.event || msg.event.source !== 'General' || msg.event.type !== 'Custom') return;
+    let data = msg.data;
+    if (typeof data === 'string') { try { data = JSON.parse(data); } catch (e) { return; } }
+    if (!data || data.source !== 'gluecksrad') return;
+    if (WHEEL_ID && data.wheelId !== WHEEL_ID) return;
+    if (data.event === 'spin') enqueue(data);
+    else if (data.event === 'preview' && !spinning) {
+      wheel = data.wheel; draw();
+      stage.classList.add('visible');
+      setTimeout(() => { if (!spinning && !look().idleVisible) stage.classList.remove('visible'); }, 5000);
+    }
+  }
+  window.grHandleMessage = handleMessage;   // für Tests
+
+  function reportResult(job, idx) {
+    if (DEMO || !job.spinId) return;
+    if (!ws || ws.readyState !== 1) return;
+    ws.send(JSON.stringify({
+      request: 'DoAction', id: 'gr-result-' + job.spinId,
+      action: { id: RESULT_ACTION_ID, name: RESULT_ACTION_NAME },
+      args: { grWheelId: job.wheelId, grSpinId: job.spinId, grSegmentIndex: idx, grUser: job.user || '' }
+    }));
+  }
+
+  // ---------- Start ----------
+  window.addEventListener('resize', resize);
+  resize();
+  if (wheel && look().idleVisible) stage.classList.add('visible');
+
+  if (DEMO) {
+    const demoWheel = wheel || {
+      id: 'demo', name: 'Demo',
+      look: { spinSeconds: 6, spins: 5, idleVisible: true, holdSeconds: 3 },
+      segments: [
+        { text: 'Zonk', color: '#d50f25', textColor: '#ffffff', weight: 30 },
+        { text: 'Freispin', color: '#ffff99', textColor: '#000000', weight: 15 },
+        { text: '10 Pushups', color: '#009925', textColor: '#ffffff', weight: 20 },
+        { text: '1000 Punkte', color: '#3369e8', textColor: '#ffffff', weight: 20 },
+        { text: 'Jackpot', color: '#eeb211', textColor: '#000000', weight: 5 },
+        { text: 'Nochmal Zonk', color: '#8e24aa', textColor: '#ffffff', weight: 10 }
+      ]
+    };
+    wheel = demoWheel;
+    stage.classList.add('visible');
+    draw();
+    window.grDemoSpin = (i, user) => enqueue({
+      wheel: demoWheel, wheelId: 'demo', user: user || 'Demo',
+      targetIndex: i != null ? i : Math.floor(Math.random() * demoWheel.segments.length)
+    });
+    document.addEventListener('click', () => window.grDemoSpin());
+    window.grState = () => ({ rotation, underPointer: segmentIndexAt(rotation), spinning, queued: queue.length });
+  } else {
+    connect();
+  }
+})();
+</script>
+</body>
+</html>
