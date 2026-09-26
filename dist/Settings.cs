@@ -507,9 +507,38 @@ public class GrSettingsForm : Form
         if (cfg.wheels.Count == 0) { cfg.wheels.Add(GrCore.ExampleWheel()); dirty = true; }
 
         LoadStreamerbotLists();
+        DetectScale();
         BuildUi();
+        FitToScreen();
         RefreshWheelList(0);
         UpdateStatusBar();
+    }
+
+    // Nur für Tests: erzwingt einen Skalierungsfaktor
+    public static float ForcedScale = 0;
+
+    // Streamer.bot ist DPI-aware: Schriften wachsen mit der Windows-Skalierung, Pixelmaße aber nicht.
+    // Deshalb werden alle Pixelmaße beim Aufbau mit S() skaliert (z. B. Faktor 1,5 bei 150 %).
+    static float uiScale = 1f;
+
+    static int S(int v) { return (int)Math.Round(v * uiScale); }
+
+    static void DetectScale()
+    {
+        float f = ForcedScale;
+        if (f <= 0)
+        {
+            try { using (var g = Graphics.FromHwnd(IntPtr.Zero)) f = g.DpiX / 96f; }
+            catch { f = 1f; }
+        }
+        uiScale = Math.Max(1f, f);
+    }
+
+    void FitToScreen()
+    {
+        var area = Screen.FromPoint(Cursor.Position).WorkingArea;
+        MinimumSize = new Size(Math.Min(MinimumSize.Width, area.Width - 40), Math.Min(MinimumSize.Height, area.Height - 40));
+        Size = new Size(Math.Min(Width, area.Width - 20), Math.Min(Height, area.Height - 20));
     }
 
     // ================= Daten aus Streamer.bot =================
@@ -547,13 +576,13 @@ public class GrSettingsForm : Form
     {
         Text = "Glücksrad – Einstellungen";
         Font = new Font("Segoe UI", 9f);
-        Size = new Size(1480, 820);
-        MinimumSize = new Size(1100, 650);
+        Size = new Size(S(1480), S(820));
+        MinimumSize = new Size(S(1100), S(650));
         StartPosition = FormStartPosition.CenterScreen;
         FormClosing += OnFormClosing;
         Shown += (s, e) => { TopMost = true; Activate(); TopMost = false; };
 
-        tabs = new TabControl { Dock = DockStyle.Fill, Padding = new Point(12, 5) };
+        tabs = new TabControl { Dock = DockStyle.Fill, Padding = new Point(S(12), S(5)) };
         tabs.TabPages.Add(BuildGeneralTab());
         tabs.TabPages.Add(BuildSegmentsTab());
         tabs.TabPages.Add(BuildTriggersTab());
@@ -562,8 +591,8 @@ public class GrSettingsForm : Form
         tabs.SelectedIndex = 1;
 
         // Rechte Seite: Vorschau
-        var right = new Panel { Dock = DockStyle.Right, Width = 330, Padding = new Padding(8) };
-        var previewTitle = new Label { Text = "Vorschau", Dock = DockStyle.Top, Height = 24, Font = new Font(Font, FontStyle.Bold) };
+        var right = new Panel { Dock = DockStyle.Right, Width = S(330), Padding = new Padding(S(8)) };
+        var previewTitle = new Label { Text = "Vorschau", Dock = DockStyle.Top, Height = S(24), Font = new Font(Font, FontStyle.Bold) };
         preview = new DoubleBufferedPanel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(40, 40, 46) };
         preview.Paint += PaintPreview;
         preview.Resize += (s, e) => preview.Invalidate();
@@ -571,27 +600,27 @@ public class GrSettingsForm : Form
         right.Controls.Add(previewTitle);
 
         // Linke Seite: Liste der Räder
-        var left = new Panel { Dock = DockStyle.Left, Width = 220, Padding = new Padding(8) };
-        var leftTitle = new Label { Text = "Glücksräder", Dock = DockStyle.Top, Height = 24, Font = new Font(Font, FontStyle.Bold) };
+        var left = new Panel { Dock = DockStyle.Left, Width = S(220), Padding = new Padding(S(8)) };
+        var leftTitle = new Label { Text = "Glücksräder", Dock = DockStyle.Top, Height = S(24), Font = new Font(Font, FontStyle.Bold) };
         wheelList = new ListBox { Dock = DockStyle.Fill, IntegralHeight = false, Font = new Font("Segoe UI", 10f) };
         wheelList.SelectedIndexChanged += (s, e) => { if (!loading && wheelList.SelectedIndex >= 0) SelectWheel(wheelList.SelectedIndex); };
-        var leftButtons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 70, FlowDirection = FlowDirection.LeftToRight };
-        leftButtons.Controls.Add(MakeButton("Neu", 96, (s, e) => AddWheel(false)));
-        leftButtons.Controls.Add(MakeButton("Duplizieren", 96, (s, e) => AddWheel(true)));
-        leftButtons.Controls.Add(MakeButton("Löschen", 96, (s, e) => DeleteWheel()));
+        var leftButtons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = S(70), FlowDirection = FlowDirection.LeftToRight };
+        leftButtons.Controls.Add(MakeButton("Neu", S(96), (s, e) => AddWheel(false)));
+        leftButtons.Controls.Add(MakeButton("Duplizieren", S(96), (s, e) => AddWheel(true)));
+        leftButtons.Controls.Add(MakeButton("Löschen", S(96), (s, e) => DeleteWheel()));
         left.Controls.Add(wheelList);
         left.Controls.Add(leftButtons);
         left.Controls.Add(leftTitle);
 
         // Unten: Status und Knöpfe
-        var bottom = new Panel { Dock = DockStyle.Bottom, Height = 52, Padding = new Padding(10, 8, 10, 8) };
+        var bottom = new Panel { Dock = DockStyle.Bottom, Height = S(52), Padding = new Padding(S(10), S(8), S(10), S(8)) };
         statusLabel = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true };
-        var buttons = new FlowLayoutPanel { Dock = DockStyle.Right, Width = 440, FlowDirection = FlowDirection.RightToLeft };
-        buttons.Controls.Add(MakeButton("Schließen", 120, (s, e) => Close()));
-        var saveBtn = MakeButton("Speichern", 120, (s, e) => SaveAll(true));
+        var buttons = new FlowLayoutPanel { Dock = DockStyle.Right, Width = S(440), FlowDirection = FlowDirection.RightToLeft };
+        buttons.Controls.Add(MakeButton("Schließen", S(120), (s, e) => Close()));
+        var saveBtn = MakeButton("Speichern", S(120), (s, e) => SaveAll(true));
         saveBtn.Font = new Font(Font, FontStyle.Bold);
         buttons.Controls.Add(saveBtn);
-        buttons.Controls.Add(MakeButton("Test-Drehen", 120, (s, e) => TestSpin()));
+        buttons.Controls.Add(MakeButton("Test-Drehen", S(120), (s, e) => TestSpin()));
         bottom.Controls.Add(statusLabel);
         bottom.Controls.Add(buttons);
 
@@ -603,9 +632,9 @@ public class GrSettingsForm : Form
 
     TabPage BuildGeneralTab()
     {
-        var page = new TabPage("Allgemein") { Padding = new Padding(12), AutoScroll = true };
+        var page = new TabPage("Allgemein") { Padding = new Padding(S(12)), AutoScroll = true };
         var t = NewTable();
-        nameBox = new TextBox { Width = 320 };
+        nameBox = new TextBox { Width = S(320) };
         nameBox.TextChanged += (s, e) =>
         {
             if (loading) return;
@@ -625,7 +654,7 @@ public class GrSettingsForm : Form
         chatAsBotBox = new CheckBox { Text = "Chatnachrichten mit dem Bot-Account senden", AutoSize = true };
         chatAsBotBox.CheckedChanged += (s, e) => { if (loading) return; cfg.chatAsBot = chatAsBotBox.Checked; MarkDirty(); };
         AddRow(t, "", chatAsBotBox);
-        hostBox = new TextBox { Width = 160 };
+        hostBox = new TextBox { Width = S(160) };
         hostBox.TextChanged += (s, e) => { if (loading) return; cfg.host = hostBox.Text.Trim(); MarkDirty(); };
         AddRow(t, "WebSocket-Server (Host):", hostBox);
         portBox = Num(1, 65535, 0);
@@ -642,13 +671,13 @@ public class GrSettingsForm : Form
 
     TabPage BuildSegmentsTab()
     {
-        var page = new TabPage("Felder") { Padding = new Padding(8) };
-        var toolbar = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 38 };
-        toolbar.Controls.Add(MakeButton("+ Feld", 90, (s, e) => AddSegment()));
-        toolbar.Controls.Add(MakeButton("Feld entfernen", 110, (s, e) => RemoveSegment()));
-        toolbar.Controls.Add(MakeButton("▲ Hoch", 80, (s, e) => MoveSegment(-1)));
-        toolbar.Controls.Add(MakeButton("▼ Runter", 80, (s, e) => MoveSegment(1)));
-        sumLabel = new Label { AutoSize = true, Padding = new Padding(10, 8, 0, 0) };
+        var page = new TabPage("Felder") { Padding = new Padding(S(8)) };
+        var toolbar = new FlowLayoutPanel { Dock = DockStyle.Top, Height = S(38) };
+        toolbar.Controls.Add(MakeButton("+ Feld", S(90), (s, e) => AddSegment()));
+        toolbar.Controls.Add(MakeButton("Feld entfernen", S(110), (s, e) => RemoveSegment()));
+        toolbar.Controls.Add(MakeButton("▲ Hoch", S(80), (s, e) => MoveSegment(-1)));
+        toolbar.Controls.Add(MakeButton("▼ Runter", S(80), (s, e) => MoveSegment(1)));
+        sumLabel = new Label { AutoSize = true, Padding = new Padding(S(10), S(8), S(0), S(0)) };
         toolbar.Controls.Add(sumLabel);
 
         grid = new DataGridView
@@ -658,25 +687,26 @@ public class GrSettingsForm : Form
             AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None, BackgroundColor = SystemColors.Window,
             EditMode = DataGridViewEditMode.EditOnEnter
         };
-        grid.RowTemplate.Height = 28;
-        grid.Columns.Add(TextCol("Text auf dem Rad", 130, false));
-        grid.Columns.Add(TextCol("Farbe", 64, true));
-        grid.Columns.Add(TextCol("Textfarbe", 64, true));
-        grid.Columns.Add(TextCol("Bild", 56, true));
-        grid.Columns.Add(TextCol("Chance", 56, false));
-        grid.Columns.Add(TextCol("%", 54, true));
-        var chatCol = TextCol("Chatnachricht (%user%, %prize%)", 260, false);
+        grid.RowTemplate.Height = S(28);
+        grid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
+        grid.Columns.Add(TextCol("Text auf dem Rad", S(130), false));
+        grid.Columns.Add(TextCol("Farbe", S(64), true));
+        grid.Columns.Add(TextCol("Textfarbe", S(64), true));
+        grid.Columns.Add(TextCol("Bild", S(56), true));
+        grid.Columns.Add(TextCol("Chance", S(56), false));
+        grid.Columns.Add(TextCol("%", S(54), true));
+        var chatCol = TextCol("Chatnachricht (%user%, %prize%)", S(260), false);
         chatCol.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
-        chatCol.MinimumWidth = 180;
+        chatCol.MinimumWidth = S(180);
         grid.Columns.Add(chatCol);
         var actionCol = new DataGridViewComboBoxColumn
         {
-            HeaderText = "Gewinn-Action", Width = 150, FlatStyle = FlatStyle.Flat,
+            HeaderText = "Gewinn-Action", Width = S(150), FlatStyle = FlatStyle.Flat,
             DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton
         };
         grid.Columns.Add(actionCol);
-        grid.Columns.Add(TextCol("Sound", 60, true));
-        grid.Columns.Add(new DataGridViewCheckBoxColumn { HeaderText = "Freispin", Width = 60 });
+        grid.Columns.Add(TextCol("Sound", S(60), true));
+        grid.Columns.Add(new DataGridViewCheckBoxColumn { HeaderText = "Freispin", Width = S(60) });
         foreach (DataGridViewColumn c in grid.Columns) c.SortMode = DataGridViewColumnSortMode.NotSortable;
         grid.Columns[ColPercent].DefaultCellStyle.ForeColor = Color.DimGray;
         grid.Columns[ColImage].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
@@ -694,7 +724,7 @@ public class GrSettingsForm : Form
         var hint = Hint("Farbe, Bild und Sound: Zelle anklicken. Chance = Gewichtung (muss nicht 100 ergeben). " +
                         "Gewinn-Action = optionale Streamer.bot-Action, die beim Gewinn läuft (bekommt %user% und %gluecksradPrize%).");
         hint.Dock = DockStyle.Bottom;
-        hint.Padding = new Padding(0, 6, 0, 0);
+        hint.Padding = new Padding(S(0), S(6), S(0), S(0));
         page.Controls.Add(grid);
         page.Controls.Add(toolbar);
         page.Controls.Add(hint);
@@ -703,7 +733,7 @@ public class GrSettingsForm : Form
 
     TabPage BuildTriggersTab()
     {
-        var page = new TabPage("Auslöser") { Padding = new Padding(12), AutoScroll = true };
+        var page = new TabPage("Auslöser") { Padding = new Padding(S(12)), AutoScroll = true };
         var t = NewTable();
 
         AddRow(t, "", Hint("Wichtig: Die passenden Trigger müssen in Streamer.bot an die Action „Glücksrad – Drehen“ angehängt sein " +
@@ -712,10 +742,10 @@ public class GrSettingsForm : Form
                            "Befehle unter Core → Commands). Hier legst du fest, welches Rad sich bei welchem Ereignis dreht."));
 
         AddRow(t, "", Header("Kanalpunkte"));
-        rewardList = new CheckedListBox { Width = 420, Height = 170, CheckOnClick = true, IntegralHeight = false };
+        rewardList = new CheckedListBox { Width = S(420), Height = S(170), CheckOnClick = true, IntegralHeight = false };
         rewardList.ItemCheck += OnRewardCheck;
         AddRow(t, "Belohnungen:", rewardList);
-        AddRow(t, "", MakeButton("Belohnungen neu laden", 170, (s, e) => { LoadRewards(); FillRewards(); }));
+        AddRow(t, "", MakeButton("Belohnungen neu laden", S(170), (s, e) => { LoadRewards(); FillRewards(); }));
 
         AddRow(t, "", Header("Bits, Subs und Spenden"));
         bitsBox = Check("Bits (Cheer) ab");
@@ -736,7 +766,7 @@ public class GrSettingsForm : Form
                            "Passen mehrere Räder, dreht das Rad mit dem höchsten Mindestwert."));
 
         AddRow(t, "", Header("Chat-Befehl (z. B. für Mods zum Testen)"));
-        commandBox = new TextBox { Width = 160 };
+        commandBox = new TextBox { Width = S(160) };
         AddRow(t, "Befehl:", commandBox);
         AddRow(t, "", Hint("Den Befehl (z. B. !rad) zusätzlich in Streamer.bot unter Commands anlegen und als Trigger an „Glücksrad – Drehen“ hängen."));
 
@@ -762,7 +792,7 @@ public class GrSettingsForm : Form
 
     TabPage BuildLookTab()
     {
-        var page = new TabPage("Aussehen") { Padding = new Padding(12), AutoScroll = true };
+        var page = new TabPage("Aussehen") { Padding = new Padding(S(12)), AutoScroll = true };
         var t = NewTable();
         spinSeconds = Num(2, 120, 1);
         spins = Num(1, 50, 0);
@@ -816,7 +846,7 @@ public class GrSettingsForm : Form
 
     TabPage BuildObsTab()
     {
-        var page = new TabPage("OBS") { Padding = new Padding(12), AutoScroll = true };
+        var page = new TabPage("OBS") { Padding = new Padding(S(12)), AutoScroll = true };
         var t = NewTable();
         AddRow(t, "", Hint("Beim Speichern legt das Glücksrad in OBS automatisch eine eigene Szene mit einer Browser-Quelle an " +
                            "und aktualisiert sie bei jeder Änderung. Benennst du das Rad um, wird auch in OBS umbenannt."));
@@ -830,20 +860,20 @@ public class GrSettingsForm : Form
         obsHeight = Num(200, 4000, 0);
         AddRow(t, "Breite der Quelle:", obsWidth);
         AddRow(t, "Höhe der Quelle:", obsHeight);
-        addToSceneBox = new ComboBox { Width = 320, DropDownStyle = ComboBoxStyle.DropDownList };
+        addToSceneBox = new ComboBox { Width = S(320), DropDownStyle = ComboBoxStyle.DropDownList };
         AddRow(t, "Zusätzlich einfügen in:", addToSceneBox);
         AddRow(t, "", Hint("Wähle z. B. deine Live-Szene: Die Rad-Szene wird dort einmalig als Quelle eingefügt, " +
                            "damit das Rad im Stream erscheint. Das Rad ist nur während einer Drehung sichtbar."));
-        AddRow(t, "", MakeButton("Szenenliste neu laden", 170, (s, e) => FillScenes()));
-        filePathBox = new TextBox { Width = 520, ReadOnly = true };
+        AddRow(t, "", MakeButton("Szenenliste neu laden", S(170), (s, e) => FillScenes()));
+        filePathBox = new TextBox { Width = S(520), ReadOnly = true };
         AddRow(t, "Overlay-Datei:", filePathBox);
         var fileButtons = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
-        fileButtons.Controls.Add(MakeButton("Pfad kopieren", 130, (s, e) => { try { Clipboard.SetText(filePathBox.Text); SetStatus("Pfad kopiert."); } catch { } }));
-        fileButtons.Controls.Add(MakeButton("Ordner öffnen", 130, (s, e) =>
+        fileButtons.Controls.Add(MakeButton("Pfad kopieren", S(130), (s, e) => { try { Clipboard.SetText(filePathBox.Text); SetStatus("Pfad kopiert."); } catch { } }));
+        fileButtons.Controls.Add(MakeButton("Ordner öffnen", S(130), (s, e) =>
         {
             try { Directory.CreateDirectory(GrCore.OverlayDir()); System.Diagnostics.Process.Start("explorer.exe", GrCore.OverlayDir()); } catch { }
         }));
-        fileButtons.Controls.Add(MakeButton("Jetzt mit OBS synchronisieren", 220, (s, e) => SaveAll(true)));
+        fileButtons.Controls.Add(MakeButton("Jetzt mit OBS synchronisieren", S(220), (s, e) => SaveAll(true)));
         AddRow(t, "", fileButtons);
 
         EventHandler changed = (s, e) =>
@@ -1522,8 +1552,8 @@ public class GrSettingsForm : Form
 
     static TableLayoutPanel NewTable()
     {
-        var t = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, Padding = new Padding(4) };
-        t.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 190));
+        var t = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, Padding = new Padding(S(4)) };
+        t.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, S(190)));
         t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         return t;
     }
@@ -1532,42 +1562,42 @@ public class GrSettingsForm : Form
     {
         int row = t.RowCount++;
         t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        var l = new Label { Text = label, AutoSize = true, Anchor = AnchorStyles.Left, Padding = new Padding(0, 6, 0, 0) };
-        c.Margin = new Padding(3, 4, 3, 4);
+        var l = new Label { Text = label, AutoSize = true, Anchor = AnchorStyles.Left, Padding = new Padding(S(0), S(6), S(0), S(0)) };
+        c.Margin = new Padding(S(3), S(4), S(3), S(4));
         t.Controls.Add(l, 0, row);
         t.Controls.Add(c, 1, row);
     }
 
     static Label Hint(string text)
     {
-        return new Label { Text = text, AutoSize = true, MaximumSize = new Size(620, 0), ForeColor = Color.DimGray };
+        return new Label { Text = text, AutoSize = true, MaximumSize = new Size(S(620), S(0)), ForeColor = Color.DimGray };
     }
 
     Label Header(string text)
     {
-        return new Label { Text = text, AutoSize = true, Font = new Font(Font.FontFamily, 10f, FontStyle.Bold), Padding = new Padding(0, 12, 0, 2) };
+        return new Label { Text = text, AutoSize = true, Font = new Font(Font.FontFamily, 10f, FontStyle.Bold), Padding = new Padding(S(0), S(12), S(0), S(2)) };
     }
 
     static CheckBox Check(string text) { return new CheckBox { Text = text, AutoSize = true }; }
 
     static NumericUpDown Num(decimal min, decimal max, int decimals)
     {
-        return new NumericUpDown { Minimum = min, Maximum = max, DecimalPlaces = decimals, Width = 110, Increment = decimals > 0 ? 0.5m : 1m };
+        return new NumericUpDown { Minimum = min, Maximum = max, DecimalPlaces = decimals, Width = S(110), Increment = decimals > 0 ? 0.5m : 1m };
     }
 
     static Control Pair(CheckBox box, NumericUpDown num, string suffix)
     {
         var p = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
-        box.Margin = new Padding(0, 5, 6, 0);
+        box.Margin = new Padding(S(0), S(5), S(6), S(0));
         p.Controls.Add(box);
         p.Controls.Add(num);
-        p.Controls.Add(new Label { Text = suffix, AutoSize = true, Padding = new Padding(4, 6, 0, 0) });
+        p.Controls.Add(new Label { Text = suffix, AutoSize = true, Padding = new Padding(S(4), S(6), S(0), S(0)) });
         return p;
     }
 
     Button ColorButton()
     {
-        var b = new Button { Width = 110, Height = 26, FlatStyle = FlatStyle.Flat, Text = "" };
+        var b = new Button { Width = S(110), Height = S(26), FlatStyle = FlatStyle.Flat, Text = "" };
         b.Click += (s, e) =>
         {
             using (var dlg = new ColorDialog { FullOpen = true, Color = b.BackColor })
@@ -1578,7 +1608,7 @@ public class GrSettingsForm : Form
 
     static Button MakeButton(string text, int width, EventHandler click)
     {
-        var b = new Button { Text = text, Width = width, Height = 30 };
+        var b = new Button { Text = text, Width = width, Height = S(30) };
         b.Click += click;
         return b;
     }
