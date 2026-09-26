@@ -16,7 +16,10 @@ public class CPHInline
             CPH.LogInfo("[Glücksrad] Kein Rad für dieses Ereignis eingestellt (" + reason + ").");
             return true;
         }
-        GrCore.StartSpin(CPH, wheel, GrCore.FindUser(args), false);
+        int field = (int)GrCore.ArgNumber(args, "gluecksradForceField");
+        string trigger, amount;
+        GrCore.DescribeTrigger(args, out trigger, out amount);
+        GrCore.StartSpin(CPH, wheel, GrCore.FindUser(args), false, field - 1, amount, trigger);
         return true;
     }
 }

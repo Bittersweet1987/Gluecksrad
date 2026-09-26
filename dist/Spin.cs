@@ -24,7 +24,10 @@ public class CPHInline
             CPH.LogInfo("[Glücksrad] Kein Rad für dieses Ereignis eingestellt (" + reason + ").");
             return true;
         }
-        GrCore.StartSpin(CPH, wheel, GrCore.FindUser(args), false);
+        int field = (int)GrCore.ArgNumber(args, "gluecksradForceField");
+        string trigger, amount;
+        GrCore.DescribeTrigger(args, out trigger, out amount);
+        GrCore.StartSpin(CPH, wheel, GrCore.FindUser(args), false, field - 1, amount, trigger);
         return true;
     }
 }
@@ -83,10 +86,22 @@ public class GrLook
     public int spins { get; set; }
     public string borderColor { get; set; }
     public int borderWidth { get; set; }
+    public string lineColor { get; set; }      // Trennlinien zwischen den Feldern
+    public int lineWidth { get; set; }
     public string pointerColor { get; set; }
+    public bool showPointer { get; set; }
     public string centerColor { get; set; }
+    public string centerImage { get; set; }    // Data-URI oder leer
+    public int hubSize { get; set; }           // Nabe in % des Radius (nur bei vollem Rad)
+    public int innerRadius { get; set; }       // hohle Mitte in % des Radius (0 = volles Rad)
     public bool proportional { get; set; }
     public int fontSize { get; set; }
+    public bool showText { get; set; }
+    public string imageMode { get; set; }      // inward, outward, left, right, upright
+    public int imageSize { get; set; }         // Bildlänge in % des Radius
+    public int imageDistance { get; set; }     // Abstand der Bild-Innenkante von der Mitte in % des Radius
+    public string winColor { get; set; }
+    public int blinkMs { get; set; }
     public bool showBanner { get; set; }
     public double holdSeconds { get; set; }
     public bool idleVisible { get; set; }
@@ -95,8 +110,11 @@ public class GrLook
 
     public GrLook()
     {
-        spinSeconds = 12; spins = 8; borderColor = "#ffffff"; borderWidth = 6; pointerColor = "#ffcc00";
-        centerColor = "#ffffff"; proportional = true; fontSize = 28; showBanner = true; holdSeconds = 6;
+        spinSeconds = 12; spins = 8; borderColor = "#ffffff"; borderWidth = 6; lineColor = "#ffffff"; lineWidth = 2;
+        pointerColor = "#ffcc00"; showPointer = true; centerColor = "#ffffff"; centerImage = ""; hubSize = 11;
+        innerRadius = 0; proportional = true; fontSize = 28; showText = true;
+        imageMode = "outward"; imageSize = 40; imageDistance = 40;
+        winColor = "#19cfe5"; blinkMs = 300; showBanner = true; holdSeconds = 6;
         idleVisible = false; tick = true; volume = 0.5;
     }
 }
@@ -136,9 +154,10 @@ public class GrConfig
     public int port { get; set; }
     public int obsConnection { get; set; }
     public bool chatAsBot { get; set; }
+    public bool darkMode { get; set; }
     public List<GrWheel> wheels { get; set; }
 
-    public GrConfig() { version = 1; host = "127.0.0.1"; port = 8080; obsConnection = 0; chatAsBot = true; wheels = new List<GrWheel>(); }
+    public GrConfig() { version = 1; host = "127.0.0.1"; port = 8080; obsConnection = 0; chatAsBot = true; darkMode = true; wheels = new List<GrWheel>(); }
 }
 
 public static class GrCore
@@ -194,6 +213,10 @@ public static class GrCore
             if (w.triggers.rewardIds == null) w.triggers.rewardIds = new List<string>();
             if (w.triggers.command == null) w.triggers.command = "";
             if (w.look == null) w.look = new GrLook();
+            if (w.look.centerImage == null) w.look.centerImage = "";
+            if (string.IsNullOrEmpty(w.look.imageMode)) w.look.imageMode = "outward";
+            if (string.IsNullOrEmpty(w.look.lineColor)) w.look.lineColor = w.look.borderColor ?? "#ffffff";
+            if (string.IsNullOrEmpty(w.look.winColor)) w.look.winColor = "#19cfe5";
             if (w.obs == null) w.obs = new GrObs();
             if (w.obs.addToScene == null) w.obs.addToScene = "";
             if (w.obs.syncedScene == null) w.obs.syncedScene = "";
@@ -233,6 +256,30 @@ public static class GrCore
         return s;
     }
 
+    // ---------- Rad exportieren / importieren ----------
+    public static string ExportWheel(GrWheel w)
+    {
+        var d = new Dictionary<string, object>();
+        d["gluecksradWheel"] = 1;
+        d["wheel"] = w;
+        return Json().Serialize(d);
+    }
+
+    public static GrWheel ImportWheel(string json)
+    {
+        var s = Json();
+        var raw = s.DeserializeObject(json) as Dictionary<string, object>;
+        if (raw == null) throw new Exception("Keine gültige Glücksrad-Datei.");
+        object inner;
+        string wheelJson = raw.TryGetValue("wheel", out inner) ? s.Serialize(inner) : json;
+        var w = s.Deserialize<GrWheel>(wheelJson);
+        if (w == null || w.segments == null) throw new Exception("Keine gültige Glücksrad-Datei.");
+        var tmp = new GrConfig();
+        tmp.wheels.Add(w);
+        Normalize(tmp);
+        return w;
+    }
+
     // ---------- Namen / Dateien ----------
     public static string ObsSceneName(GrWheel w) { return "Glücksrad – " + w.name; }
     public static string ObsInputName(GrWheel w) { return "Glücksrad – " + w.name + " (Rad)"; }
@@ -255,7 +302,17 @@ public static class GrCore
         boot["port"] = cfg.port.ToString(CultureInfo.InvariantCulture);
         boot["resultActionId"] = resultActionId;
         boot["resultActionName"] = ResultActionName;
-        boot["wheel"] = w;
+        // Nur optische Daten ins Overlay: Auslöser, Chattexte usw. sollen kein Neuladen der OBS-Quelle auslösen
+        var visual = new Dictionary<string, object>();
+        visual["id"] = w.id;
+        visual["name"] = w.name;
+        visual["look"] = w.look;
+        visual["segments"] = w.segments.Select(sg => new Dictionary<string, object>
+        {
+            { "text", sg.text }, { "color", sg.color }, { "textColor", sg.textColor },
+            { "image", sg.image }, { "weight", sg.weight }, { "sound", sg.sound }
+        }).ToList();
+        boot["wheel"] = visual;
         string json = Json().Serialize(boot).Replace("</", "<\\/");
         return template.Replace("/*GR_BOOT*/null/*GR_BOOT_END*/", "/*GR_BOOT*/" + json + "/*GR_BOOT_END*/");
     }
@@ -277,13 +334,44 @@ public static class GrCore
     }
 
     // Lost ein Feld aus und schickt das Spin-Event an die Browser-Quelle(n) des Rads.
+    // Variablen für Chatnachrichten: Platzhalter, Knopftext, Beschreibung
+    public static readonly string[][] ChatVariables =
+    {
+        new[] { "%user%", "Gewinner", "Name des Gewinners" },
+        new[] { "%prize%", "Gewinn", "Text des Gewinnfeldes" },
+        new[] { "%wheel%", "Rad", "Name des Rads" },
+        new[] { "%amount%", "Betrag", "Bits, Spendenbetrag, Anzahl Gift-Subs bzw. Kanalpunkte-Kosten" },
+        new[] { "%trigger%", "Auslöser", "Was die Drehung ausgelöst hat, z. B. Kanalpunkte, Bits, Spende, Freispin" },
+        new[] { "%field%", "Feldnummer", "Nummer des Gewinnfeldes" }
+    };
+
+    public static string FillText(string text, Dictionary<string, string> values)
+    {
+        if (string.IsNullOrEmpty(text)) return "";
+        foreach (var kv in values) text = text.Replace(kv.Key, kv.Value ?? "");
+        return text;
+    }
+
     public static void StartSpin(IInlineInvokeProxy cph, GrWheel w, string user, bool test)
     {
+        StartSpin(cph, w, user, test, -1, "", "Test");
+    }
+
+    // forcedIndex >= 0 legt das Gewinnfeld fest (nur zum Testen, Argument "gluecksradForceField" = Feldnummer ab 1)
+    public static void StartSpin(IInlineInvokeProxy cph, GrWheel w, string user, bool test, int forcedIndex, string amount, string trigger)
+    {
         if (w.segments.Count == 0) { cph.LogWarn("[Glücksrad] Rad '" + w.name + "' hat keine Felder."); return; }
-        int idx = PickSegment(w);
+        int idx = forcedIndex >= 0 && forcedIndex < w.segments.Count ? forcedIndex : PickSegment(w);
         string spinId = Guid.NewGuid().ToString("N");
         // Ergebnis serverseitig merken: nur das erste Ergebnis-Event zählt (z.B. bei doppelt geladener Quelle)
-        cph.SetGlobalVar(PendingPrefix + spinId, w.id + "|" + idx + "|" + (test ? "1" : "0") + "|" + user, false);
+        var pending = new Dictionary<string, object>();
+        pending["wheelId"] = w.id;
+        pending["index"] = idx;
+        pending["test"] = test;
+        pending["user"] = user;
+        pending["amount"] = amount ?? "";
+        pending["trigger"] = trigger ?? "";
+        cph.SetGlobalVar(PendingPrefix + spinId, Json().Serialize(pending), false);
 
         var payload = new Dictionary<string, object>();
         payload["source"] = "gluecksrad";
@@ -411,6 +499,23 @@ public static class GrCore
         return null;
     }
 
+    // Beschreibt das auslösende Ereignis für %trigger% und %amount%
+    public static void DescribeTrigger(Dictionary<string, object> args, out string trigger, out string amount)
+    {
+        string source = ArgString(args, "__source") ?? "";
+        trigger = "Manuell"; amount = "";
+        Func<double, string> fmt = d => d.ToString("0.##", CultureInfo.GetCultureInfo("de-DE"));
+        if (ArgString(args, "rewardId") != null) { trigger = "Kanalpunkte"; double c = ArgNumber(args, "rewardCost"); amount = c > 0 ? fmt(c) : ""; }
+        else if (source.IndexOf("Command", StringComparison.OrdinalIgnoreCase) >= 0) trigger = "Befehl";
+        else if (source.IndexOf("Cheer", StringComparison.OrdinalIgnoreCase) >= 0) { trigger = "Bits"; amount = fmt(ArgNumber(args, "bits")); }
+        else if (source.IndexOf("GiftBomb", StringComparison.OrdinalIgnoreCase) >= 0) { trigger = "Gift-Subs"; amount = fmt(ArgNumber(args, "gifts")); }
+        else if (source.IndexOf("GiftSub", StringComparison.OrdinalIgnoreCase) >= 0) { trigger = "Gift-Sub"; amount = "1"; }
+        else if (source.IndexOf("ReSub", StringComparison.OrdinalIgnoreCase) >= 0) trigger = "Resub";
+        else if (source.IndexOf("Sub", StringComparison.OrdinalIgnoreCase) >= 0) trigger = "Sub";
+        else if (source.IndexOf("Tip", StringComparison.OrdinalIgnoreCase) >= 0 || source.IndexOf("Donation", StringComparison.OrdinalIgnoreCase) >= 0)
+        { trigger = "Spende"; amount = fmt(ArgNumber(args, "tipAmount", "donationAmount", "amount")); }
+    }
+
     public static string FindUser(Dictionary<string, object> args)
     {
         return ArgString(args, "gluecksradUser", "user", "tipUsername", "donationFrom", "from", "userName", "name") ?? "Jemand";
@@ -465,6 +570,12 @@ public static class GrCore
     // Legt Szene + Browser-Quelle an oder aktualisiert/benennt sie um. Gibt ein kurzes Protokoll zurück.
     public static string SyncObs(IInlineInvokeProxy cph, GrConfig cfg, GrWheel w)
     {
+        return SyncObs(cph, cfg, w, true);
+    }
+
+    // refresh = false: Quelle nicht neu laden (Overlay unverändert), damit laufende Drehungen nicht abbrechen
+    public static string SyncObs(IInlineInvokeProxy cph, GrConfig cfg, GrWheel w, bool refresh)
+    {
         var log = new List<string>();
         string scene = ObsSceneName(w);
         string input = ObsInputName(w);
@@ -511,8 +622,11 @@ public static class GrCore
         else
         {
             ObsRequest(cph, cfg, "SetInputSettings", D("inputName", input, "inputSettings", settings, "overlay", true));
-            ObsRequest(cph, cfg, "PressInputPropertiesButton", D("inputName", input, "propertyName", "refreshnocache"));
-            log.Add("Browser-Quelle aktualisiert");
+            if (refresh)
+            {
+                ObsRequest(cph, cfg, "PressInputPropertiesButton", D("inputName", input, "propertyName", "refreshnocache"));
+                log.Add("Browser-Quelle aktualisiert");
+            }
         }
 
         // Optional: Rad-Szene in eine andere Szene (z.B. "Live") einbetten

@@ -16,12 +16,14 @@ public class CPHInline
         if (string.IsNullOrEmpty(pending)) return true;
         CPH.UnsetGlobalVar(GrCore.PendingPrefix + spinId, false);
 
-        string[] parts = pending.Split(new[] { '|' }, 4);
-        if (parts.Length < 4) return false;
-        string wheelId = parts[0];
-        int idx = int.Parse(parts[1]);
-        bool test = parts[2] == "1";
-        string user = parts[3];
+        var data = GrCore.Json().DeserializeObject(pending) as Dictionary<string, object>;
+        if (data == null) return false;
+        string wheelId = Convert.ToString(data["wheelId"]);
+        int idx = Convert.ToInt32(data["index"]);
+        bool test = Convert.ToBoolean(data["test"]);
+        string user = Convert.ToString(data["user"]);
+        string amount = data.ContainsKey("amount") ? Convert.ToString(data["amount"]) : "";
+        string trigger = data.ContainsKey("trigger") ? Convert.ToString(data["trigger"]) : "";
 
         GrConfig cfg = GrCore.Load(CPH);
         GrWheel wheel = cfg.wheels.FirstOrDefault(w => w.id == wheelId);
@@ -33,12 +35,21 @@ public class CPHInline
         CPH.SetArgument("gluecksradPrize", seg.text);
         CPH.SetArgument("gluecksradField", idx + 1);
         CPH.SetArgument("gluecksradTest", test);
+        CPH.SetArgument("gluecksradAmount", amount);
+        CPH.SetArgument("gluecksradTrigger", trigger);
         CPH.SetGlobalVar("gluecksradLastUser", user, false);
         CPH.SetGlobalVar("gluecksradLastPrize", seg.text, false);
 
         if (!string.IsNullOrEmpty(seg.chat))
         {
-            string msg = seg.chat.Replace("%user%", user).Replace("%prize%", seg.text).Replace("%wheel%", wheel.name);
+            var values = new Dictionary<string, string>();
+            values["%user%"] = user;
+            values["%prize%"] = seg.text;
+            values["%wheel%"] = wheel.name;
+            values["%amount%"] = amount;
+            values["%trigger%"] = trigger;
+            values["%field%"] = (idx + 1).ToString();
+            string msg = GrCore.FillText(seg.chat, values);
             if (test) msg = "[Test] " + msg;
             CPH.SendMessage(msg, cfg.chatAsBot, true);
         }
@@ -48,13 +59,16 @@ public class CPHInline
             if (test) CPH.LogInfo("[Glücksrad] Test-Drehung: Action '" + seg.action + "' wird nicht ausgeführt.");
             else
             {
-                // "user" überschreiben, damit die Gewinn-Action mit %user% direkt den Gewinner kennt
+                // "user" überschreiben, damit die Gewinn-Action mit %user% direkt den Gewinner kennt.
+                // Ältere Roulette-Actions lesen den Gewinner aus den globalen Variablen user/rouletteWin.
                 CPH.SetArgument("user", user);
+                CPH.SetGlobalVar("user", user, true);
+                CPH.SetGlobalVar("rouletteWin", seg.text, true);
                 CPH.RunAction(seg.action, true);
             }
         }
 
-        if (seg.freeSpin) GrCore.StartSpin(CPH, wheel, user, test);
+        if (seg.freeSpin) GrCore.StartSpin(CPH, wheel, user, test, -1, "", "Freispin");
         return true;
     }
 }

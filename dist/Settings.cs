@@ -5,6 +5,7 @@ using System.Drawing.Drawing2D;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
 using Streamer.bot.Plugin.Interface;
@@ -13,6 +14,7 @@ using System.Web.Script.Serialization;
 
 // Action "Glücksrad – Einstellungen"
 // Öffnet das Einstellungsfenster. Hier werden Räder, Felder, Auslöser, Aussehen und OBS eingerichtet.
+
 
 
 
@@ -72,8 +74,11 @@ const BOOT = /*GR_BOOT*/null/*GR_BOOT_END*/;
   const statusEl = document.getElementById('status');
 
   const DEFAULT_LOOK = {
-    spinSeconds: 12, spins: 8, borderColor: '#ffffff', borderWidth: 6, pointerColor: '#ffcc00',
-    centerColor: '#ffffff', proportional: true, fontSize: 28, showBanner: true, holdSeconds: 6,
+    spinSeconds: 12, spins: 8, borderColor: '#ffffff', borderWidth: 6, lineColor: '#ffffff', lineWidth: 2,
+    pointerColor: '#ffcc00', showPointer: true, centerColor: '#ffffff', centerImage: '', hubSize: 11,
+    innerRadius: 0, proportional: true, fontSize: 28, showText: true,
+    imageMode: 'outward', imageSize: 40, imageDistance: 40,
+    winColor: '#19cfe5', blinkMs: 300, showBanner: true, holdSeconds: 6,
     idleVisible: false, tick: true, volume: 0.5
   };
 
@@ -86,6 +91,8 @@ const BOOT = /*GR_BOOT*/null/*GR_BOOT_END*/;
   const imageCache = {};
 
   function look() { return Object.assign({}, DEFAULT_LOOK, (wheel && wheel.look) || {}); }
+  // Zahl aus der Konfiguration lesen (0 ist ein gültiger Wert)
+  function num(v, def) { const n = parseFloat(v); return isNaN(n) ? def : n; }
 
   // ---------- Geometrie ----------
   function segmentAngles(w) {
@@ -120,7 +127,8 @@ const BOOT = /*GR_BOOT*/null/*GR_BOOT_END*/;
     if (!wheel || !wheel.segments || !wheel.segments.length) return;
     const L = look();
     const scale = W / 1000;
-    const R = 440 * scale;             // Radius des Rads
+    const R = 440 * scale;                                         // Radius des Rads
+    const inner = Math.min(0.9, Math.max(0, num(L.innerRadius, 0) / 100)) * R;   // hohle Mitte
     const angles = segmentAngles(wheel);
 
     ctx.save();
@@ -134,47 +142,38 @@ const BOOT = /*GR_BOOT*/null/*GR_BOOT_END*/;
       const a0 = (a.start - 90) * Math.PI / 180;
       const a1 = (a.start + a.size - 90) * Math.PI / 180;
       ctx.beginPath();
-      ctx.moveTo(0, 0);
       ctx.arc(0, 0, R, a0, a1);
+      if (inner > 0) ctx.arc(0, 0, inner, a1, a0, true); else ctx.lineTo(0, 0);
       ctx.closePath();
-      ctx.fillStyle = (i === highlight && blinkOn) ? '#ffffff' : (seg.color || '#888888');
+      let fill = seg.color || '#888888';
+      if (i === highlight) fill = blinkOn ? '#ffffff' : (L.winColor || fill);
+      ctx.fillStyle = fill;
       ctx.fill();
-      ctx.lineWidth = Math.max(1, 2 * scale);
-      ctx.strokeStyle = L.borderColor;
-      ctx.stroke();
-
-      const mid = (a.start + a.size / 2 - 90) * Math.PI / 180;
-      ctx.save();
-      ctx.rotate(mid);
-      const img = getImage(seg.image);
-      const hasText = seg.text && String(seg.text).trim() !== '';
-      if (img) {
-        // Bild zeigt mit der Oberkante nach außen, Größe an die Segmentbreite angepasst
-        const arcW = 2 * R * 0.62 * Math.sin(Math.min(a.size, 170) / 2 * Math.PI / 180);
-        const maxW = Math.min(arcW, R * 0.5);
-        const ratio = img.naturalHeight / img.naturalWidth;
-        let w = maxW, h = maxW * ratio;
-        if (h > R * 0.45) { h = R * 0.45; w = h / ratio; }
-        const dist = hasText ? R * 0.68 : R * 0.62;
-        ctx.save();
-        ctx.translate(dist, 0);
-        ctx.rotate(Math.PI / 2);
-        ctx.drawImage(img, -w / 2, -h / 2, w, h);
-        ctx.restore();
+      const lw = num(L.lineWidth, 2);
+      if (lw > 0) {
+        ctx.lineWidth = lw * scale;
+        ctx.strokeStyle = L.lineColor || L.borderColor;
+        ctx.stroke();
       }
+
+      const midDeg = a.start + a.size / 2 - 90;
+      const mid = midDeg * Math.PI / 180;
+      ctx.save();
+      ctx.rotate(mid);                  // +x zeigt jetzt von der Mitte nach außen durch die Feldmitte
+      const img = getImage(seg.image);
+      const hasText = L.showText && seg.text && String(seg.text).trim() !== '';
+      if (img) drawSegmentImage(img, R, L, midDeg);
       if (hasText) {
-        let fs = (+L.fontSize || 28) * scale;
+        let fs = num(L.fontSize, 28) * scale;
         ctx.font = `700 ${fs}px ""Segoe UI"", Arial, sans-serif`;
-        const maxLen = R * (img ? 0.42 : 0.72);
+        const tx = R * 0.92;
+        const maxLen = Math.max(20 * scale, tx - Math.max(inner, R * 0.15) - 10 * scale);
         while (ctx.measureText(seg.text).width > maxLen && fs > 10 * scale) {
           fs -= 1 * scale; ctx.font = `700 ${fs}px ""Segoe UI"", Arial, sans-serif`;
         }
         ctx.fillStyle = seg.textColor || '#000000';
         ctx.textAlign = 'right';
         ctx.textBaseline = 'middle';
-        ctx.lineWidth = Math.max(2, fs / 7);
-        ctx.strokeStyle = 'rgba(0,0,0,.35)';
-        const tx = img ? R * 0.45 : R * 0.9;
         ctx.fillText(seg.text, tx, 0);
       }
       ctx.restore();
@@ -182,36 +181,78 @@ const BOOT = /*GR_BOOT*/null/*GR_BOOT_END*/;
     ctx.restore();
 
     // Außenring
-    ctx.beginPath();
-    ctx.arc(c, c, R, 0, Math.PI * 2);
-    ctx.lineWidth = (+L.borderWidth || 6) * scale;
-    ctx.strokeStyle = L.borderColor;
-    ctx.stroke();
+    const bw = num(L.borderWidth, 6);
+    if (bw > 0) {
+      ctx.beginPath();
+      ctx.arc(c, c, R, 0, Math.PI * 2);
+      ctx.lineWidth = bw * scale;
+      ctx.strokeStyle = L.borderColor;
+      ctx.stroke();
+    }
 
-    // Nabe
-    ctx.beginPath();
-    ctx.arc(c, c, 50 * scale, 0, Math.PI * 2);
-    ctx.fillStyle = L.centerColor;
-    ctx.fill();
-    ctx.lineWidth = 4 * scale;
-    ctx.strokeStyle = L.borderColor;
-    ctx.stroke();
+    // Mitte: Nabe (volles Rad) bzw. Bild in der hohlen Mitte
+    const hub = inner > 0 ? inner : Math.max(0, num(L.hubSize, 11) / 100) * R;
+    const centerImg = getImage(L.centerImage);
+    if (hub > 0) {
+      if (centerImg) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(c, c, hub, 0, Math.PI * 2);
+        ctx.clip();
+        const s2 = hub * 2 / Math.max(centerImg.naturalWidth, centerImg.naturalHeight);
+        const w2 = centerImg.naturalWidth * s2, h2 = centerImg.naturalHeight * s2;
+        ctx.drawImage(centerImg, c - w2 / 2, c - h2 / 2, w2, h2);
+        ctx.restore();
+      } else if (inner === 0) {
+        ctx.beginPath();
+        ctx.arc(c, c, hub, 0, Math.PI * 2);
+        ctx.fillStyle = L.centerColor;
+        ctx.fill();
+        if (bw > 0) { ctx.lineWidth = Math.min(bw, 4) * scale; ctx.strokeStyle = L.borderColor; ctx.stroke(); }
+      }
+    }
 
     // Zeiger oben
-    const tipY = c - R + 38 * scale;
-    ctx.beginPath();
-    ctx.moveTo(c, tipY);
-    ctx.lineTo(c - 32 * scale, c - R - 32 * scale);
-    ctx.lineTo(c + 32 * scale, c - R - 32 * scale);
-    ctx.closePath();
-    ctx.fillStyle = L.pointerColor;
-    ctx.shadowColor = 'rgba(0,0,0,.5)';
-    ctx.shadowBlur = 8 * scale;
-    ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.lineWidth = 3 * scale;
-    ctx.strokeStyle = 'rgba(0,0,0,.6)';
-    ctx.stroke();
+    if (L.showPointer !== false) {
+      const tipY = c - R + 38 * scale;
+      ctx.beginPath();
+      ctx.moveTo(c, tipY);
+      ctx.lineTo(c - 32 * scale, c - R - 32 * scale);
+      ctx.lineTo(c + 32 * scale, c - R - 32 * scale);
+      ctx.closePath();
+      ctx.fillStyle = L.pointerColor;
+      ctx.shadowColor = 'rgba(0,0,0,.5)';
+      ctx.shadowBlur = 8 * scale;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.lineWidth = 3 * scale;
+      ctx.strokeStyle = 'rgba(0,0,0,.6)';
+      ctx.stroke();
+    }
+  }
+
+  // Zeichnet ein Feldbild. Erwartet ein Koordinatensystem, in dem +x von der Mitte nach außen zeigt.
+  //   imageSize     = Länge des Bildes in % des Radius (bei radialer Ausrichtung die Bildhöhe)
+  //   imageDistance = Abstand der Bild-Innenkante von der Mitte in % des Radius
+  //   imageMode     = inward (Oberkante zur Mitte), outward (Oberkante nach außen),
+  //                   left / right (quer), upright (immer aufrecht)
+  function drawSegmentImage(img, R, L, midDeg) {
+    const mode = L.imageMode || 'outward';
+    const len = Math.max(1, num(L.imageSize, 40)) / 100 * R;
+    const start = Math.max(0, num(L.imageDistance, 40)) / 100 * R;
+    const iw = img.naturalWidth, ih = img.naturalHeight;
+    let w, h, radial;
+    if (mode === 'inward' || mode === 'outward') { h = len; w = len * iw / ih; radial = h; }
+    else if (mode === 'upright') { const s = len / Math.max(iw, ih); w = iw * s; h = ih * s; radial = len; }
+    else { w = len; h = len * ih / iw; radial = w; }
+    ctx.save();
+    ctx.translate(start + radial / 2, 0);
+    if (mode === 'inward') ctx.rotate(-Math.PI / 2);
+    else if (mode === 'outward') ctx.rotate(Math.PI / 2);
+    else if (mode === 'right') ctx.rotate(Math.PI);
+    else if (mode === 'upright') ctx.rotate(-(midDeg + rotation) * Math.PI / 180);
+    ctx.drawImage(img, -w / 2, -h / 2, w, h);
+    ctx.restore();
   }
 
   // ---------- Sound ----------
@@ -227,7 +268,7 @@ const BOOT = /*GR_BOOT*/null/*GR_BOOT_END*/;
       osc.type = 'square';
       osc.frequency.setValueAtTime(1400, t);
       osc.frequency.exponentialRampToValueAtTime(500, t + 0.03);
-      gain.gain.setValueAtTime(0.15 * (+L.volume || 0), t);
+      gain.gain.setValueAtTime(0.15 * num(L.volume, 0.5), t);
       gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.04);
       osc.connect(gain).connect(audioCtx.destination);
       osc.start(t);
@@ -237,7 +278,7 @@ const BOOT = /*GR_BOOT*/null/*GR_BOOT_END*/;
 
   function playSound(src) {
     if (!src) return;
-    try { const a = new Audio(src); a.volume = Math.min(1, Math.max(0, +look().volume || 0.5)); a.play().catch(() => {}); }
+    try { const a = new Audio(src); a.volume = Math.min(1, Math.max(0, num(look().volume, 0.5))); a.play().catch(() => {}); }
     catch (e) { /* ignorieren */ }
   }
 
@@ -274,8 +315,25 @@ const BOOT = /*GR_BOOT*/null/*GR_BOOT_END*/;
     });
   }
 
+  // Laufende Drehung merken: Wird die Quelle mitten in der Drehung neu geladen, wird sie danach fortgesetzt.
+  const RESUME_KEY = 'gluecksrad_running_' + (WHEEL_ID || 'demo');
+  function rememberJob(job) {
+    try { if (job) localStorage.setItem(RESUME_KEY, JSON.stringify({ ts: Date.now(), job })); else localStorage.removeItem(RESUME_KEY); }
+    catch (e) { /* Speicher voll oder gesperrt: dann eben ohne Fortsetzen */ }
+  }
+  function resumeJob() {
+    try {
+      const raw = localStorage.getItem(RESUME_KEY);
+      if (!raw) return;
+      localStorage.removeItem(RESUME_KEY);
+      const saved = JSON.parse(raw);
+      if (saved && saved.job && Date.now() - saved.ts < 5 * 60 * 1000) enqueue(saved.job);
+    } catch (e) { /* ignorieren */ }
+  }
+
   async function runSpin(job) {
     spinning = true;
+    if (!DEMO) rememberJob(job);
     wheel = job.wheel;
     highlight = -1;
     rotation = ((rotation % 360) + 360) % 360;
@@ -292,22 +350,23 @@ const BOOT = /*GR_BOOT*/null/*GR_BOOT_END*/;
     // Rotation, bei der stopAt unter dem Zeiger (0°) liegt
     const finalMod = (360 - stopAt) % 360;
     const base = rotation - (rotation % 360);
-    let target = base + (+L.spins || 8) * 360 + finalMod;
+    let target = base + Math.max(1, num(L.spins, 8)) * 360 + finalMod;
     if (target - rotation < 720) target += 360;
-    await animateTo(target, +L.spinSeconds || 12);
+    await animateTo(target, num(L.spinSeconds, 12));
 
     const seg = wheel.segments[idx] || {};
     playSound(seg.sound);
     highlight = idx;
-    const blink = setInterval(() => { blinkOn = !blinkOn; draw(); }, 300);
+    const blink = setInterval(() => { blinkOn = !blinkOn; draw(); }, Math.max(80, num(L.blinkMs, 300)));
     if (L.showBanner) {
       const label = (seg.text && seg.text.trim()) || seg.name || ('Feld ' + (idx + 1));
       banner.textContent = (job.user ? job.user + ' gewinnt:\n' : 'Gewonnen:\n') + label;
       banner.classList.add('visible');
     }
     reportResult(job, idx);
+    if (!DEMO) rememberJob(null);
 
-    await sleep(Math.max(1, +L.holdSeconds || 6) * 1000);
+    await sleep(Math.max(1, num(L.holdSeconds, 6)) * 1000);
     clearInterval(blink);
     blinkOn = false;
     highlight = -1;
@@ -342,6 +401,7 @@ const BOOT = /*GR_BOOT*/null/*GR_BOOT_END*/;
     ws.onopen = () => {
       setStatus('');
       ws.send(JSON.stringify({ request: 'Subscribe', id: 'gr-sub', events: { General: ['Custom'] } }));
+      resumeJob();
     };
     ws.onmessage = ev => handleMessage(ev.data);
     ws.onclose = () => {
@@ -454,50 +514,255 @@ const BOOT = /*GR_BOOT*/null/*GR_BOOT_END*/;
     }
 }
 
+// ===================== Farben für Hell- und Dunkelmodus =====================
+public class GrTheme
+{
+    public bool Dark;
+    public Color Back, Surface, Input, Border, Text, Dim, Accent, AccentText, Header, Selection, SelectionText, Button;
+
+    public static GrTheme Get(bool dark)
+    {
+        var t = new GrTheme { Dark = dark };
+        if (dark)
+        {
+            t.Back = Color.FromArgb(32, 32, 32); t.Surface = Color.FromArgb(43, 43, 43); t.Input = Color.FromArgb(56, 56, 56);
+            t.Border = Color.FromArgb(80, 80, 80); t.Text = Color.FromArgb(242, 242, 242); t.Dim = Color.FromArgb(170, 170, 170);
+            t.Accent = Color.FromArgb(58, 123, 213); t.AccentText = Color.White; t.Header = Color.FromArgb(50, 50, 50);
+            t.Selection = Color.FromArgb(58, 95, 143); t.SelectionText = Color.White; t.Button = Color.FromArgb(62, 62, 62);
+        }
+        else
+        {
+            t.Back = Color.FromArgb(243, 243, 243); t.Surface = Color.White; t.Input = Color.White;
+            t.Border = Color.FromArgb(200, 200, 200); t.Text = Color.FromArgb(30, 30, 30); t.Dim = Color.FromArgb(100, 100, 100);
+            t.Accent = Color.FromArgb(43, 108, 196); t.AccentText = Color.White; t.Header = Color.FromArgb(232, 232, 232);
+            t.Selection = Color.FromArgb(204, 224, 255); t.SelectionText = Color.Black; t.Button = Color.FromArgb(228, 228, 228);
+        }
+        return t;
+    }
+
+    [DllImport("dwmapi.dll")]
+    static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+
+    // Dunkle Titelleiste (Windows 10 20H1+ / Windows 11)
+    public static void TitleBar(Form f, bool dark)
+    {
+        try { int v = dark ? 1 : 0; DwmSetWindowAttribute(f.Handle, 20, ref v, 4); } catch { }
+    }
+
+    public void Apply(Control root)
+    {
+        root.BackColor = Back;
+        root.ForeColor = Text;
+        foreach (Control c in root.Controls) ApplyOne(c);
+    }
+
+    void ApplyOne(Control c)
+    {
+        string tag = c.Tag as string;
+        if (tag == "swatch") { /* Farbfeld behält seine Farbe */ }
+        else if (c is Button)
+        {
+            var b = (Button)c;
+            b.FlatStyle = FlatStyle.Flat;
+            b.FlatAppearance.BorderColor = Border;
+            b.BackColor = tag == "primary" ? Accent : Button;
+            b.ForeColor = tag == "primary" ? AccentText : Text;
+            b.UseVisualStyleBackColor = false;
+        }
+        else if (c is RadioButton && ((RadioButton)c).Appearance == Appearance.Button)
+        {
+            var r = (RadioButton)c;
+            r.FlatStyle = FlatStyle.Flat;
+            r.FlatAppearance.BorderColor = Back;
+            r.FlatAppearance.CheckedBackColor = Accent;
+            r.BackColor = Back;
+            r.ForeColor = r.Checked ? AccentText : Text;
+        }
+        else if (c is TextBox || c is NumericUpDown || c is ListBox || c is ComboBox)
+        {
+            c.BackColor = Input;
+            c.ForeColor = Text;
+            if (c is ComboBox) ((ComboBox)c).FlatStyle = FlatStyle.Flat;
+            if (c is TextBox) ((TextBox)c).BorderStyle = BorderStyle.FixedSingle;
+            if (c is NumericUpDown) ((NumericUpDown)c).BorderStyle = BorderStyle.FixedSingle;
+            if (c is ListBox) ((ListBox)c).BorderStyle = BorderStyle.FixedSingle;
+        }
+        else if (c is DataGridView)
+        {
+            var g = (DataGridView)c;
+            g.EnableHeadersVisualStyles = false;
+            g.BackgroundColor = Surface;
+            g.GridColor = Border;
+            g.BorderStyle = BorderStyle.FixedSingle;
+            g.DefaultCellStyle.BackColor = Surface;
+            g.DefaultCellStyle.ForeColor = Text;
+            g.DefaultCellStyle.SelectionBackColor = Selection;
+            g.DefaultCellStyle.SelectionForeColor = SelectionText;
+            g.ColumnHeadersDefaultCellStyle.BackColor = Header;
+            g.ColumnHeadersDefaultCellStyle.ForeColor = Text;
+            g.ColumnHeadersDefaultCellStyle.SelectionBackColor = Header;
+            g.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.Single;
+        }
+        else if (c is PictureBox) { c.BackColor = Input; }
+        else if (tag == "preview") { /* Vorschau hat eigenen Hintergrund */ }
+        else
+        {
+            // Container und Beschriftungen übernehmen den Hintergrund ihres Elternelements
+            c.BackColor = tag == "surface" ? Surface : (c.Parent != null ? c.Parent.BackColor : Back);
+            c.ForeColor = tag == "dim" ? Dim : Text;
+        }
+        foreach (Control child in c.Controls) ApplyOne(child);
+    }
+}
+
+// ===================== Durchsuchbare Action-Auswahl =====================
+public class GrActionPicker : Form
+{
+    public string Selected;
+    readonly List<string[]> all;   // [Gruppe, Name]
+    readonly TextBox search;
+    readonly ListBox list;
+
+    public GrActionPicker(List<string[]> actions, string current, GrTheme theme, Func<int, int> S)
+    {
+        all = actions;
+        Text = "Gewinn-Action auswählen";
+        Font = new Font("Segoe UI", 10f);
+        StartPosition = FormStartPosition.CenterParent;
+        Size = new Size(S(560), S(620));
+        MinimizeBox = false; MaximizeBox = false; ShowInTaskbar = false;
+        Padding = new Padding(S(10));
+
+        search = new TextBox { Dock = DockStyle.Top };
+        var hint = new Label { Text = "Suchen (Name oder Gruppe):", Dock = DockStyle.Top, Height = S(24), Tag = "dim" };
+        list = new ListBox { Dock = DockStyle.Fill, IntegralHeight = false };
+        var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = S(48), FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(0, S(8), 0, 0) };
+        var ok = new Button { Text = "Übernehmen", Width = S(130), Height = S(32), Tag = "primary" };
+        var cancel = new Button { Text = "Abbrechen", Width = S(110), Height = S(32) };
+        var none = new Button { Text = "Keine Action", Width = S(120), Height = S(32) };
+        buttons.Controls.Add(ok); buttons.Controls.Add(cancel); buttons.Controls.Add(none);
+        var spacer = new Panel { Dock = DockStyle.Top, Height = S(8) };
+
+        Controls.Add(list);
+        Controls.Add(spacer);
+        Controls.Add(search);
+        Controls.Add(hint);
+        Controls.Add(buttons);
+
+        search.TextChanged += (s, e) => Fill(null);
+        search.KeyDown += (s, e) =>
+        {
+            if (e.KeyCode == Keys.Down && list.Items.Count > 0) { list.Focus(); list.SelectedIndex = Math.Min(list.SelectedIndex + 1, list.Items.Count - 1); e.Handled = true; }
+            if (e.KeyCode == Keys.Enter) { Accept(); e.Handled = true; e.SuppressKeyPress = true; }
+        };
+        list.DoubleClick += (s, e) => Accept();
+        list.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) Accept(); };
+        ok.Click += (s, e) => Accept();
+        cancel.Click += (s, e) => { DialogResult = DialogResult.Cancel; Close(); };
+        none.Click += (s, e) => { Selected = ""; DialogResult = DialogResult.OK; Close(); };
+
+        theme.Apply(this);
+        BackColor = theme.Back; ForeColor = theme.Text;
+        HandleCreated += (s, e) => GrTheme.TitleBar(this, theme.Dark);
+        Fill(current);
+        Shown += (s, e) => search.Focus();
+    }
+
+    class Item
+    {
+        public string Name, Label;
+        public override string ToString() { return Label; }
+    }
+
+    void Fill(string select)
+    {
+        string q = search.Text.Trim();
+        list.BeginUpdate();
+        list.Items.Clear();
+        foreach (var a in all)
+        {
+            string label = (a[0] != "" ? a[0] + "  ›  " : "") + a[1];
+            if (q != "" && label.IndexOf(q, StringComparison.CurrentCultureIgnoreCase) < 0) continue;
+            int i = list.Items.Add(new Item { Name = a[1], Label = label });
+            if (select != null && a[1] == select) list.SelectedIndex = i;
+        }
+        if (list.SelectedIndex < 0 && list.Items.Count > 0 && q != "") list.SelectedIndex = 0;
+        list.EndUpdate();
+    }
+
+    void Accept()
+    {
+        var item = list.SelectedItem as Item;
+        if (item == null) return;
+        Selected = item.Name;
+        DialogResult = DialogResult.OK;
+        Close();
+    }
+}
+
+// ===================== Einstellungsfenster =====================
 public class GrSettingsForm : Form
 {
     readonly IInlineInvokeProxy cph;
     readonly string overlayTemplate;
     GrConfig cfg;
     GrWheel wheel;
+    GrTheme theme;
     bool loading;
     bool dirty;
-    List<string> actionNames = new List<string>();
+    List<string[]> actions = new List<string[]>();
     List<TwitchReward> rewards = new List<TwitchReward>();
     readonly Dictionary<string, Image> imageCache = new Dictionary<string, Image>();
 
-    // Steuerelemente
+    // Grundgerüst
     ListBox wheelList;
-    TabControl tabs;
-    Panel preview;
+    Panel pageHost, preview;
+    readonly List<Panel> pages = new List<Panel>();
+    readonly List<RadioButton> navButtons = new List<RadioButton>();
+    Button themeButton;
     Label statusLabel;
+    CheckBox testActionsBox;
     // Allgemein
-    TextBox nameBox;
-    CheckBox enabledBox;
-    CheckBox chatAsBotBox;
-    TextBox hostBox;
-    NumericUpDown portBox;
-    NumericUpDown obsConnBox;
+    TextBox nameBox, hostBox;
+    CheckBox enabledBox, chatAsBotBox;
+    NumericUpDown portBox, obsConnBox;
     // Felder
     DataGridView grid;
     Label sumLabel;
+    TextBox segTextBox, segChatBox, segActionBox;
+    PictureBox segImageBox;
+    Label segSoundLabel, segTitle, segPreviewLabel;
+    string previewUser;
+    readonly ToolTip tips = new ToolTip();
+    CheckBox segFreeBox;
+    Panel detail;
     // Auslöser
     CheckedListBox rewardList;
     CheckBox bitsBox, subsBox, resubsBox, giftBox, tipsBox;
     NumericUpDown bitsMin, giftMin, tipMin;
     TextBox commandBox;
     // Aussehen
-    NumericUpDown spinSeconds, spins, fontSize, borderWidth, holdSeconds, volume;
-    Button borderColorBtn, pointerColorBtn, centerColorBtn;
-    CheckBox proportionalBox, bannerBox, idleVisibleBox, tickBox;
+    NumericUpDown spinSeconds, spins, holdSeconds, blinkMs, volume, borderWidth, lineWidth, innerRadius, hubSize, fontSize, imageSize, imageDistance;
+    Button borderColorBtn, lineColorBtn, pointerColorBtn, centerColorBtn, winColorBtn;
+    CheckBox proportionalBox, bannerBox, idleVisibleBox, tickBox, showTextBox, showPointerBox;
+    ComboBox imageModeBox;
+    PictureBox centerImageBox;
     // OBS
     Label obsSceneLabel, obsInputLabel, obsStatusLabel;
     TextBox filePathBox;
     NumericUpDown obsWidth, obsHeight;
     ComboBox addToSceneBox;
 
-    const int ColText = 0, ColColor = 1, ColTextColor = 2, ColImage = 3, ColWeight = 4, ColPercent = 5,
-              ColChat = 6, ColAction = 7, ColSound = 8, ColFree = 9;
+    const int ColText = 0, ColColor = 1, ColTextColor = 2, ColImage = 3, ColWeight = 4, ColPercent = 5, ColAction = 6, ColFree = 7;
+
+    static readonly string[][] ImageModes =
+    {
+        new[] { "inward", "Oberkante zur Mitte" },
+        new[] { "outward", "Oberkante nach außen" },
+        new[] { "left", "Quer (Oberkante links)" },
+        new[] { "right", "Quer (Oberkante rechts)" },
+        new[] { "upright", "Immer aufrecht" }
+    };
 
     public GrSettingsForm(IInlineInvokeProxy cph, string overlayTemplate)
     {
@@ -505,11 +770,14 @@ public class GrSettingsForm : Form
         this.overlayTemplate = overlayTemplate;
         cfg = GrCore.Load(cph);
         if (cfg.wheels.Count == 0) { cfg.wheels.Add(GrCore.ExampleWheel()); dirty = true; }
+        theme = GrTheme.Get(cfg.darkMode);
 
         LoadStreamerbotLists();
         DetectScale();
         BuildUi();
+        ApplyTheme();
         FitToScreen();
+        ShowPage(1);
         RefreshWheelList(0);
         UpdateStatusBar();
     }
@@ -546,9 +814,11 @@ public class GrSettingsForm : Form
     {
         try
         {
-            actionNames = cph.GetActions()
+            actions = cph.GetActions()
                 .Where(a => a.Name != GrCore.SettingsActionName && a.Name != GrCore.SpinActionName && a.Name != GrCore.ResultActionName)
-                .Select(a => a.Name).OrderBy(n => n, StringComparer.CurrentCultureIgnoreCase).ToList();
+                .OrderBy(a => a.Group ?? "", StringComparer.CurrentCultureIgnoreCase)
+                .ThenBy(a => a.Name, StringComparer.CurrentCultureIgnoreCase)
+                .Select(a => new[] { a.Group ?? "", a.Name }).ToList();
         }
         catch (Exception ex) { cph.LogWarn("[Glücksrad] Actions konnten nicht geladen werden: " + ex.Message); }
         LoadRewards();
@@ -571,80 +841,164 @@ public class GrSettingsForm : Form
         return GrCore.ResultActionId;
     }
 
+    string TestUser()
+    {
+        try
+        {
+            var b = cph.TwitchGetBroadcaster();
+            if (b != null && !string.IsNullOrEmpty(b.UserName)) return b.UserName;
+        }
+        catch { }
+        return "Test";
+    }
+
     // ================= Aufbau der Oberfläche =================
     void BuildUi()
     {
         Text = "Glücksrad – Einstellungen";
-        Font = new Font("Segoe UI", 9f);
-        Size = new Size(S(1480), S(820));
-        MinimumSize = new Size(S(1100), S(650));
+        Font = new Font("Segoe UI", 10f);
+        Size = new Size(S(1500), S(880));
+        MinimumSize = new Size(S(1150), S(700));
         StartPosition = FormStartPosition.CenterScreen;
         FormClosing += OnFormClosing;
         Shown += (s, e) => { TopMost = true; Activate(); TopMost = false; };
+        HandleCreated += (s, e) => GrTheme.TitleBar(this, theme.Dark);
 
-        tabs = new TabControl { Dock = DockStyle.Fill, Padding = new Point(S(12), S(5)) };
-        tabs.TabPages.Add(BuildGeneralTab());
-        tabs.TabPages.Add(BuildSegmentsTab());
-        tabs.TabPages.Add(BuildTriggersTab());
-        tabs.TabPages.Add(BuildLookTab());
-        tabs.TabPages.Add(BuildObsTab());
-        tabs.SelectedIndex = 1;
+        // Mitte: Navigation + Seiten
+        var center = new Panel { Dock = DockStyle.Fill, Padding = new Padding(S(4), S(8), S(4), 0) };
+        var nav = new FlowLayoutPanel { Dock = DockStyle.Top, Height = S(46), WrapContents = false };
+        string[] names = { "Allgemein", "Felder", "Auslöser", "Aussehen", "OBS" };
+        for (int i = 0; i < names.Length; i++)
+        {
+            int index = i;
+            var rb = new RadioButton
+            {
+                Text = names[i], Appearance = Appearance.Button, TextAlign = ContentAlignment.MiddleCenter,
+                Width = S(118), Height = S(36), Margin = new Padding(0, 0, S(4), 0), Font = new Font("Segoe UI", 10.5f)
+            };
+            rb.CheckedChanged += (s, e) => { if (rb.Checked) ShowPage(index); };
+            navButtons.Add(rb);
+            nav.Controls.Add(rb);
+        }
+        themeButton = MakeButton("", S(150), (s, e) => ToggleTheme());
+        themeButton.Margin = new Padding(S(24), 0, 0, 0);
+        themeButton.Height = S(36);
+        nav.Controls.Add(themeButton);
+
+        pageHost = new Panel { Dock = DockStyle.Fill, Tag = "surface" };
+        pages.Add(BuildGeneralPage());
+        pages.Add(BuildSegmentsPage());
+        pages.Add(BuildTriggersPage());
+        pages.Add(BuildLookPage());
+        pages.Add(BuildObsPage());
+        foreach (var p in pages) { p.Dock = DockStyle.Fill; p.Visible = false; pageHost.Controls.Add(p); }
+        center.Controls.Add(pageHost);
+        center.Controls.Add(nav);
 
         // Rechte Seite: Vorschau
-        var right = new Panel { Dock = DockStyle.Right, Width = S(330), Padding = new Padding(S(8)) };
-        var previewTitle = new Label { Text = "Vorschau", Dock = DockStyle.Top, Height = S(24), Font = new Font(Font, FontStyle.Bold) };
-        preview = new DoubleBufferedPanel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(40, 40, 46) };
+        var right = new Panel { Dock = DockStyle.Right, Width = S(360), Padding = new Padding(S(8), S(8), S(10), S(8)) };
+        var previewTitle = new Label { Text = "Vorschau", Dock = DockStyle.Top, Height = S(30), Font = new Font("Segoe UI", 10.5f, FontStyle.Bold) };
+        preview = new DoubleBufferedPanel { Dock = DockStyle.Fill, Tag = "preview" };
         preview.Paint += PaintPreview;
         preview.Resize += (s, e) => preview.Invalidate();
         right.Controls.Add(preview);
         right.Controls.Add(previewTitle);
 
         // Linke Seite: Liste der Räder
-        var left = new Panel { Dock = DockStyle.Left, Width = S(220), Padding = new Padding(S(8)) };
-        var leftTitle = new Label { Text = "Glücksräder", Dock = DockStyle.Top, Height = S(24), Font = new Font(Font, FontStyle.Bold) };
-        wheelList = new ListBox { Dock = DockStyle.Fill, IntegralHeight = false, Font = new Font("Segoe UI", 10f) };
+        var left = new Panel { Dock = DockStyle.Left, Width = S(236), Padding = new Padding(S(10), S(8), S(4), S(8)) };
+        var leftTitle = new Label { Text = "Glücksräder", Dock = DockStyle.Top, Height = S(30), Font = new Font("Segoe UI", 10.5f, FontStyle.Bold) };
+        wheelList = new ListBox { Dock = DockStyle.Fill, IntegralHeight = false, Font = new Font("Segoe UI", 11f), ItemHeight = S(26), DrawMode = DrawMode.OwnerDrawFixed };
+        wheelList.DrawItem += DrawWheelItem;
         wheelList.SelectedIndexChanged += (s, e) => { if (!loading && wheelList.SelectedIndex >= 0) SelectWheel(wheelList.SelectedIndex); };
-        var leftButtons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = S(70), FlowDirection = FlowDirection.LeftToRight };
-        leftButtons.Controls.Add(MakeButton("Neu", S(96), (s, e) => AddWheel(false)));
-        leftButtons.Controls.Add(MakeButton("Duplizieren", S(96), (s, e) => AddWheel(true)));
-        leftButtons.Controls.Add(MakeButton("Löschen", S(96), (s, e) => DeleteWheel()));
+        var leftButtons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = S(130), Padding = new Padding(0, S(6), 0, 0) };
+        leftButtons.Controls.Add(MakeButton("Neu", S(100), (s, e) => AddWheel(false)));
+        leftButtons.Controls.Add(MakeButton("Duplizieren", S(100), (s, e) => AddWheel(true)));
+        leftButtons.Controls.Add(MakeButton("Importieren …", S(100), (s, e) => ImportWheel()));
+        leftButtons.Controls.Add(MakeButton("Exportieren …", S(100), (s, e) => ExportWheel()));
+        leftButtons.Controls.Add(MakeButton("Löschen", S(100), (s, e) => DeleteWheel()));
         left.Controls.Add(wheelList);
         left.Controls.Add(leftButtons);
         left.Controls.Add(leftTitle);
 
         // Unten: Status und Knöpfe
-        var bottom = new Panel { Dock = DockStyle.Bottom, Height = S(52), Padding = new Padding(S(10), S(8), S(10), S(8)) };
-        statusLabel = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true };
-        var buttons = new FlowLayoutPanel { Dock = DockStyle.Right, Width = S(440), FlowDirection = FlowDirection.RightToLeft };
+        var bottom = new Panel { Dock = DockStyle.Bottom, Height = S(58), Padding = new Padding(S(12), S(10), S(12), S(10)) };
+        statusLabel = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true, Tag = "dim" };
+        var buttons = new FlowLayoutPanel { Dock = DockStyle.Right, Width = S(700), FlowDirection = FlowDirection.RightToLeft, WrapContents = false };
         buttons.Controls.Add(MakeButton("Schließen", S(120), (s, e) => Close()));
-        var saveBtn = MakeButton("Speichern", S(120), (s, e) => SaveAll(true));
-        saveBtn.Font = new Font(Font, FontStyle.Bold);
+        var saveBtn = MakeButton("Speichern", S(130), (s, e) => SaveAll(true));
+        saveBtn.Tag = "primary";
+        saveBtn.Font = new Font("Segoe UI", 10f, FontStyle.Bold);
         buttons.Controls.Add(saveBtn);
-        buttons.Controls.Add(MakeButton("Test-Drehen", S(120), (s, e) => TestSpin()));
+        buttons.Controls.Add(MakeButton("Test-Drehen", S(130), (s, e) => TestSpin()));
+        testActionsBox = new CheckBox { Text = "Gewinn-Actions beim Test ausführen", AutoSize = true, Margin = new Padding(0, S(8), S(12), 0) };
+        buttons.Controls.Add(testActionsBox);
         bottom.Controls.Add(statusLabel);
         bottom.Controls.Add(buttons);
 
-        Controls.Add(tabs);
+        Controls.Add(center);
         Controls.Add(right);
         Controls.Add(left);
         Controls.Add(bottom);
     }
 
-    TabPage BuildGeneralTab()
+    void ShowPage(int index)
     {
-        var page = new TabPage("Allgemein") { Padding = new Padding(S(12)), AutoScroll = true };
+        for (int i = 0; i < pages.Count; i++) pages[i].Visible = i == index;
+        for (int i = 0; i < navButtons.Count; i++)
+        {
+            if (navButtons[i].Checked != (i == index)) navButtons[i].Checked = i == index;
+            navButtons[i].ForeColor = i == index ? theme.AccentText : theme.Text;
+        }
+    }
+
+    void ApplyTheme()
+    {
+        theme.Apply(this);
+        BackColor = theme.Back;
+        ForeColor = theme.Text;
+        themeButton.Text = theme.Dark ? "☀  Hellmodus" : "☾  Dunkelmodus";
+        preview.BackColor = theme.Dark ? Color.FromArgb(24, 24, 24) : Color.FromArgb(225, 225, 228);
+        for (int i = 0; i < navButtons.Count; i++) navButtons[i].ForeColor = navButtons[i].Checked ? theme.AccentText : theme.Text;
+        if (IsHandleCreated) GrTheme.TitleBar(this, theme.Dark);
+        if (grid != null && wheel != null) { FillGrid(); LoadDetail(); }
+        Invalidate(true);
+    }
+
+    void ToggleTheme()
+    {
+        cfg.darkMode = !cfg.darkMode;
+        theme = GrTheme.Get(cfg.darkMode);
+        ApplyTheme();
+        // Nur die Anzeige-Einstellung sofort merken, Rest bleibt ungespeichert
+        try
+        {
+            var stored = GrCore.Load(cph);
+            stored.darkMode = cfg.darkMode;
+            GrCore.Save(cph, stored);
+        }
+        catch { }
+    }
+
+    Panel NewPage()
+    {
+        return new Panel { AutoScroll = true, Padding = new Padding(S(16), S(12), S(16), S(12)), Tag = "surface" };
+    }
+
+    Panel BuildGeneralPage()
+    {
+        var page = NewPage();
         var t = NewTable();
-        nameBox = new TextBox { Width = S(320) };
+        nameBox = new TextBox { Width = S(360) };
         nameBox.TextChanged += (s, e) =>
         {
             if (loading) return;
             wheel.name = nameBox.Text.Trim();
             MarkDirty();
-            UpdateWheelListText();
+            wheelList.Invalidate();
             UpdateObsLabels();
         };
         enabledBox = new CheckBox { Text = "Rad ist aktiv (reagiert auf Auslöser)", AutoSize = true };
-        enabledBox.CheckedChanged += (s, e) => { if (loading) return; wheel.enabled = enabledBox.Checked; MarkDirty(); UpdateWheelListText(); };
+        enabledBox.CheckedChanged += (s, e) => { if (loading) return; wheel.enabled = enabledBox.Checked; MarkDirty(); wheelList.Invalidate(); };
         AddRow(t, "Name des Rads:", nameBox);
         AddRow(t, "", enabledBox);
         AddRow(t, "", Hint("Der Name bestimmt die OBS-Szene „Glücksrad – <Name>“ und die Browser-Quelle darin. " +
@@ -654,7 +1008,7 @@ public class GrSettingsForm : Form
         chatAsBotBox = new CheckBox { Text = "Chatnachrichten mit dem Bot-Account senden", AutoSize = true };
         chatAsBotBox.CheckedChanged += (s, e) => { if (loading) return; cfg.chatAsBot = chatAsBotBox.Checked; MarkDirty(); };
         AddRow(t, "", chatAsBotBox);
-        hostBox = new TextBox { Width = S(160) };
+        hostBox = new TextBox { Width = S(180) };
         hostBox.TextChanged += (s, e) => { if (loading) return; cfg.host = hostBox.Text.Trim(); MarkDirty(); };
         AddRow(t, "WebSocket-Server (Host):", hostBox);
         portBox = Num(1, 65535, 0);
@@ -669,83 +1023,160 @@ public class GrSettingsForm : Form
         return page;
     }
 
-    TabPage BuildSegmentsTab()
+    Panel BuildSegmentsPage()
     {
-        var page = new TabPage("Felder") { Padding = new Padding(S(8)) };
-        var toolbar = new FlowLayoutPanel { Dock = DockStyle.Top, Height = S(38) };
-        toolbar.Controls.Add(MakeButton("+ Feld", S(90), (s, e) => AddSegment()));
-        toolbar.Controls.Add(MakeButton("Feld entfernen", S(110), (s, e) => RemoveSegment()));
-        toolbar.Controls.Add(MakeButton("▲ Hoch", S(80), (s, e) => MoveSegment(-1)));
-        toolbar.Controls.Add(MakeButton("▼ Runter", S(80), (s, e) => MoveSegment(1)));
-        sumLabel = new Label { AutoSize = true, Padding = new Padding(S(10), S(8), S(0), S(0)) };
+        var page = NewPage();
+        page.AutoScroll = false;
+        var toolbar = new FlowLayoutPanel { Dock = DockStyle.Top, Height = S(44), WrapContents = false };
+        toolbar.Controls.Add(MakeButton("+ Feld", S(96), (s, e) => AddSegment()));
+        toolbar.Controls.Add(MakeButton("Feld entfernen", S(130), (s, e) => RemoveSegment()));
+        toolbar.Controls.Add(MakeButton("▲ Hoch", S(90), (s, e) => MoveSegment(-1)));
+        toolbar.Controls.Add(MakeButton("▼ Runter", S(90), (s, e) => MoveSegment(1)));
+        sumLabel = new Label { AutoSize = true, Padding = new Padding(S(12), S(8), 0, 0), Tag = "dim" };
         toolbar.Controls.Add(sumLabel);
 
         grid = new DataGridView
         {
             Dock = DockStyle.Fill, AllowUserToAddRows = false, AllowUserToDeleteRows = false, AllowUserToResizeRows = false,
             RowHeadersVisible = false, SelectionMode = DataGridViewSelectionMode.CellSelect, MultiSelect = false,
-            AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None, BackgroundColor = SystemColors.Window,
-            EditMode = DataGridViewEditMode.EditOnEnter
+            AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None, EditMode = DataGridViewEditMode.EditOnEnter,
+            ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize
         };
-        grid.RowTemplate.Height = S(28);
-        grid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
-        grid.Columns.Add(TextCol("Text auf dem Rad", S(130), false));
-        grid.Columns.Add(TextCol("Farbe", S(64), true));
-        grid.Columns.Add(TextCol("Textfarbe", S(64), true));
-        grid.Columns.Add(TextCol("Bild", S(56), true));
-        grid.Columns.Add(TextCol("Chance", S(56), false));
-        grid.Columns.Add(TextCol("%", S(54), true));
-        var chatCol = TextCol("Chatnachricht (%user%, %prize%)", S(260), false);
-        chatCol.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
-        chatCol.MinimumWidth = S(180);
-        grid.Columns.Add(chatCol);
-        var actionCol = new DataGridViewComboBoxColumn
-        {
-            HeaderText = "Gewinn-Action", Width = S(150), FlatStyle = FlatStyle.Flat,
-            DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton
-        };
+        grid.RowTemplate.Height = S(34);
+        grid.DefaultCellStyle.Padding = new Padding(S(4), 0, S(4), 0);
+        grid.Columns.Add(TextCol("Text / Gewinn", S(190), false));
+        grid.Columns.Add(TextCol("Farbe", S(80), true));
+        grid.Columns.Add(TextCol("Textfarbe", S(80), true));
+        grid.Columns.Add(TextCol("Bild", S(60), true));
+        grid.Columns.Add(TextCol("Chance", S(70), false));
+        grid.Columns.Add(TextCol("%", S(70), true));
+        var actionCol = TextCol("Gewinn-Action", S(200), true);
+        actionCol.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
         grid.Columns.Add(actionCol);
-        grid.Columns.Add(TextCol("Sound", S(60), true));
-        grid.Columns.Add(new DataGridViewCheckBoxColumn { HeaderText = "Freispin", Width = S(60) });
+        grid.Columns.Add(new DataGridViewCheckBoxColumn { HeaderText = "Freispin", Width = S(70) });
         foreach (DataGridViewColumn c in grid.Columns) c.SortMode = DataGridViewColumnSortMode.NotSortable;
-        grid.Columns[ColPercent].DefaultCellStyle.ForeColor = Color.DimGray;
         grid.Columns[ColImage].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
-        grid.Columns[ColSound].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
+        grid.Columns[ColPercent].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleRight;
 
         grid.CellValueChanged += OnGridValueChanged;
         grid.CellClick += OnGridCellClick;
+        grid.SelectionChanged += (s, e) => LoadDetail();
         grid.CurrentCellDirtyStateChanged += (s, e) =>
         {
-            if (grid.IsCurrentCellDirty && (grid.CurrentCell is DataGridViewCheckBoxCell || grid.CurrentCell is DataGridViewComboBoxCell))
+            if (grid.IsCurrentCellDirty && grid.CurrentCell is DataGridViewCheckBoxCell)
                 grid.CommitEdit(DataGridViewDataErrorContexts.Commit);
         };
         grid.DataError += (s, e) => { e.ThrowException = false; };
+        grid.EditingControlShowing += (s, e) => { e.Control.BackColor = theme.Input; e.Control.ForeColor = theme.Text; };
 
-        var hint = Hint("Farbe, Bild und Sound: Zelle anklicken. Chance = Gewichtung (muss nicht 100 ergeben). " +
-                        "Gewinn-Action = optionale Streamer.bot-Action, die beim Gewinn läuft (bekommt %user% und %gluecksradPrize%).");
-        hint.Dock = DockStyle.Bottom;
-        hint.Padding = new Padding(S(0), S(6), S(0), S(0));
+        detail = BuildDetailPanel();
+        detail.Dock = DockStyle.Bottom;
+
         page.Controls.Add(grid);
         page.Controls.Add(toolbar);
-        page.Controls.Add(hint);
+        page.Controls.Add(detail);
         return page;
     }
 
-    TabPage BuildTriggersTab()
+    Panel BuildDetailPanel()
     {
-        var page = new TabPage("Auslöser") { Padding = new Padding(S(12)), AutoScroll = true };
+        var p = new Panel { Height = S(400), Padding = new Padding(0, S(10), 0, 0) };
+        segTitle = new Label { Dock = DockStyle.Top, Height = S(30), Font = new Font("Segoe UI", 10.5f, FontStyle.Bold) };
+        var t = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 6 };
+        t.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, S(150)));
+        t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        t.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, S(260)));
+        for (int i = 0; i < 6; i++) t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+        segTextBox = new TextBox { Anchor = AnchorStyles.Left | AnchorStyles.Right };
+        segTextBox.TextChanged += (s, e) => { var sg = CurrentSegment(); if (loading || sg == null) return; sg.text = segTextBox.Text; RefreshCurrentRow(); UpdateChatPreview(); };
+        segChatBox = new TextBox { Anchor = AnchorStyles.Left | AnchorStyles.Right, Multiline = true, Height = S(58), ScrollBars = ScrollBars.Vertical };
+        segChatBox.TextChanged += (s, e) => { var sg = CurrentSegment(); if (loading || sg == null) return; sg.chat = segChatBox.Text.Replace("\r", "").Replace("\n", " "); MarkDirty(); UpdateChatPreview(); };
+        segActionBox = new TextBox { Anchor = AnchorStyles.Left | AnchorStyles.Right, ReadOnly = true };
+        var actionButtons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0) };
+        actionButtons.Controls.Add(MakeButton("Auswählen …", S(120), (s, e) => PickAction()));
+        actionButtons.Controls.Add(MakeButton("Entfernen", S(100), (s, e) => { var sg = CurrentSegment(); if (sg == null) return; sg.action = ""; RefreshCurrentRow(); LoadDetail(); }));
+        segFreeBox = new CheckBox { Text = "Freispin (Gewinner dreht sofort nochmal)", AutoSize = true };
+        segFreeBox.CheckedChanged += (s, e) => { var sg = CurrentSegment(); if (loading || sg == null) return; sg.freeSpin = segFreeBox.Checked; RefreshCurrentRow(); };
+        segSoundLabel = new Label { AutoSize = true, Padding = new Padding(0, S(6), S(10), 0) };
+        var soundButtons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0) };
+        soundButtons.Controls.Add(segSoundLabel);
+        soundButtons.Controls.Add(MakeButton("Sound wählen …", S(140), (s, e) => { var sg = CurrentSegment(); if (sg == null) return; string u = PickFileAsDataUri(false); if (u == null) return; sg.sound = u; RefreshCurrentRow(); LoadDetail(); }));
+        soundButtons.Controls.Add(MakeButton("Anhören", S(90), (s, e) => { var sg = CurrentSegment(); if (sg != null) PlayDataUri(sg.sound); }));
+        soundButtons.Controls.Add(MakeButton("Entfernen", S(100), (s, e) => { var sg = CurrentSegment(); if (sg == null) return; sg.sound = ""; RefreshCurrentRow(); LoadDetail(); }));
+
+        segImageBox = new PictureBox { Width = S(110), Height = S(110), SizeMode = PictureBoxSizeMode.Zoom, BorderStyle = BorderStyle.FixedSingle };
+        var imageButtons = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = new Padding(0) };
+        imageButtons.Controls.Add(MakeButton("Bild wählen …", S(130), (s, e) => { var sg = CurrentSegment(); if (sg == null) return; string u = PickFileAsDataUri(true); if (u == null) return; sg.image = u; RefreshCurrentRow(); LoadDetail(); }));
+        imageButtons.Controls.Add(MakeButton("Bild entfernen", S(130), (s, e) => { var sg = CurrentSegment(); if (sg == null) return; sg.image = ""; RefreshCurrentRow(); LoadDetail(); }));
+        segFreeBox.Text = "Freispin";
+        segFreeBox.Margin = new Padding(S(2), S(8), 0, 0);
+        imageButtons.Controls.Add(segFreeBox);
+        var imagePanel = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(S(10), 0, 0, 0) };
+        imagePanel.Controls.Add(segImageBox);
+        imagePanel.Controls.Add(imageButtons);
+
+        AddCell(t, 0, 0, new Label { Text = "Text / Gewinn:", AutoSize = true, Anchor = AnchorStyles.Left });
+        AddCell(t, 1, 0, segTextBox);
+        AddCell(t, 0, 1, new Label { Text = "Chatnachricht:", AutoSize = true, Anchor = AnchorStyles.Left });
+        AddCell(t, 1, 1, segChatBox);
+        // Variablen per Klick einfügen, damit niemand die Platzhalter kennen muss
+        var varButtons = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Margin = new Padding(0), MaximumSize = new Size(S(760), 0) };
+        foreach (var v in GrCore.ChatVariables)
+        {
+            string placeholder = v[0];
+            var b = new Button { Text = "+ " + v[1], AutoSize = true, Height = S(30), Margin = new Padding(0, 0, S(6), S(4)), Font = new Font("Segoe UI", 9f) };
+            b.Click += (s, e) => InsertVariable(placeholder);
+            tips.SetToolTip(b, v[2] + "  →  " + placeholder);
+            varButtons.Controls.Add(b);
+        }
+        segPreviewLabel = new Label { AutoSize = true, MaximumSize = new Size(S(760), 0), Tag = "dim" };
+        AddCell(t, 0, 2, new Label { Text = "Einfügen:", AutoSize = true, Anchor = AnchorStyles.Left });
+        AddCell(t, 1, 2, varButtons);
+        AddCell(t, 0, 3, new Label { Text = "Vorschau:", AutoSize = true, Anchor = AnchorStyles.Left });
+        AddCell(t, 1, 3, segPreviewLabel);
+        AddCell(t, 0, 4, new Label { Text = "Gewinn-Action:", AutoSize = true, Anchor = AnchorStyles.Left });
+        var actionRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, AutoSize = true, Margin = new Padding(0) };
+        actionRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        actionRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        actionRow.Controls.Add(segActionBox, 0, 0);
+        actionRow.Controls.Add(actionButtons, 1, 0);
+        AddCell(t, 1, 4, actionRow);
+        AddCell(t, 0, 5, new Label { Text = "Sound:", AutoSize = true, Anchor = AnchorStyles.Left });
+        AddCell(t, 1, 5, soundButtons);
+        AddCell(t, 2, 0, imagePanel);
+        t.SetRowSpan(imagePanel, 6);
+
+        var hint = Hint("Tipp: Mit den Knöpfen unter „Einfügen“ setzt du Gewinner, Gewinn usw. an der Cursorposition ein. " +
+                        "Die Gewinn-Action kennt dieselben Werte als %user%, %gluecksradPrize%, %gluecksradWheel%, %gluecksradAmount% und %gluecksradTrigger%.");
+        hint.Dock = DockStyle.Bottom;
+        p.Controls.Add(t);
+        p.Controls.Add(segTitle);
+        p.Controls.Add(hint);
+        return p;
+    }
+
+    static void AddCell(TableLayoutPanel t, int col, int row, Control c)
+    {
+        c.Margin = new Padding(S(3), S(4), S(3), S(4));
+        t.Controls.Add(c, col, row);
+    }
+
+    Panel BuildTriggersPage()
+    {
+        var page = NewPage();
         var t = NewTable();
 
         AddRow(t, "", Hint("Wichtig: Die passenden Trigger müssen in Streamer.bot an die Action „Glücksrad – Drehen“ angehängt sein " +
-                           "(Rechtsklick in Triggers → Twitch → Channel Reward → Reward Redemption, Twitch → Chat → Cheer, " +
+                           "(Twitch → Channel Reward → Reward Redemption, Twitch → Chat → Cheer, " +
                            "Twitch → Subscriptions → Subscription/Resubscription/Gift Subscription/Gift Bomb, Tipps unter Integrations, " +
                            "Befehle unter Core → Commands). Hier legst du fest, welches Rad sich bei welchem Ereignis dreht."));
 
         AddRow(t, "", Header("Kanalpunkte"));
-        rewardList = new CheckedListBox { Width = S(420), Height = S(170), CheckOnClick = true, IntegralHeight = false };
+        rewardList = new CheckedListBox { Width = S(520), Height = S(220), CheckOnClick = true, IntegralHeight = false };
         rewardList.ItemCheck += OnRewardCheck;
         AddRow(t, "Belohnungen:", rewardList);
-        AddRow(t, "", MakeButton("Belohnungen neu laden", S(170), (s, e) => { LoadRewards(); FillRewards(); }));
+        AddRow(t, "", MakeButton("Belohnungen neu laden", S(200), (s, e) => { LoadRewards(); FillRewards(); }));
 
         AddRow(t, "", Header("Bits, Subs und Spenden"));
         bitsBox = Check("Bits (Cheer) ab");
@@ -766,13 +1197,13 @@ public class GrSettingsForm : Form
                            "Passen mehrere Räder, dreht das Rad mit dem höchsten Mindestwert."));
 
         AddRow(t, "", Header("Chat-Befehl (z. B. für Mods zum Testen)"));
-        commandBox = new TextBox { Width = S(160) };
+        commandBox = new TextBox { Width = S(180) };
         AddRow(t, "Befehl:", commandBox);
         AddRow(t, "", Hint("Den Befehl (z. B. !rad) zusätzlich in Streamer.bot unter Commands anlegen und als Trigger an „Glücksrad – Drehen“ hängen."));
 
         EventHandler changed = (s, e) =>
         {
-            if (loading) return;
+            if (loading || wheel == null) return;
             var tr = wheel.triggers;
             tr.bits = bitsBox.Checked; tr.bitsMin = (int)bitsMin.Value;
             tr.subs = subsBox.Checked; tr.resubs = resubsBox.Checked;
@@ -781,8 +1212,7 @@ public class GrSettingsForm : Form
             tr.command = commandBox.Text.Trim();
             MarkDirty();
         };
-        foreach (var c in new Control[] { bitsBox, subsBox, resubsBox, giftBox, tipsBox })
-            ((CheckBox)c).CheckedChanged += changed;
+        foreach (var c in new[] { bitsBox, subsBox, resubsBox, giftBox, tipsBox }) c.CheckedChanged += changed;
         bitsMin.ValueChanged += changed; giftMin.ValueChanged += changed; tipMin.ValueChanged += changed;
         commandBox.TextChanged += changed;
 
@@ -790,95 +1220,144 @@ public class GrSettingsForm : Form
         return page;
     }
 
-    TabPage BuildLookTab()
+    Panel BuildLookPage()
     {
-        var page = new TabPage("Aussehen") { Padding = new Padding(S(12)), AutoScroll = true };
+        var page = NewPage();
         var t = NewTable();
         spinSeconds = Num(2, 120, 1);
-        spins = Num(1, 50, 0);
-        holdSeconds = Num(1, 60, 1);
-        fontSize = Num(8, 120, 0);
-        borderWidth = Num(0, 40, 0);
+        spins = Num(1, 60, 0);
+        holdSeconds = Num(1, 120, 1);
+        blinkMs = Num(80, 2000, 0);
         volume = Num(0, 100, 0);
-        borderColorBtn = ColorButton();
-        pointerColorBtn = ColorButton();
-        centerColorBtn = ColorButton();
+        borderWidth = Num(0, 40, 0);
+        lineWidth = Num(0, 20, 0);
+        innerRadius = Num(0, 80, 0);
+        hubSize = Num(0, 60, 0);
+        fontSize = Num(8, 120, 0);
+        imageSize = Num(5, 100, 0);
+        imageDistance = Num(0, 95, 0);
+        borderColorBtn = ColorButton(); lineColorBtn = ColorButton(); pointerColorBtn = ColorButton();
+        centerColorBtn = ColorButton(); winColorBtn = ColorButton();
         proportionalBox = Check("Feldgröße entspricht der Chance (sonst alle Felder gleich groß)");
         bannerBox = Check("Gewinner-Einblendung unter dem Rad anzeigen");
         idleVisibleBox = Check("Rad auch ohne Drehung dauerhaft anzeigen");
         tickBox = Check("Tick-Geräusch beim Drehen");
+        showTextBox = Check("Texte auf dem Rad anzeigen (aus = nur Bilder)");
+        showPointerBox = Check("Zeiger oben anzeigen");
+        imageModeBox = new ComboBox { Width = S(260), DropDownStyle = ComboBoxStyle.DropDownList };
+        foreach (var m in ImageModes) imageModeBox.Items.Add(m[1]);
+        centerImageBox = new PictureBox { Width = S(64), Height = S(64), SizeMode = PictureBoxSizeMode.Zoom, BorderStyle = BorderStyle.FixedSingle };
+        var centerImagePanel = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
+        centerImagePanel.Controls.Add(centerImageBox);
+        centerImagePanel.Controls.Add(MakeButton("Bild wählen …", S(130), (s, e) => { string u = PickFileAsDataUri(true); if (u == null) return; wheel.look.centerImage = u; LookChanged(); }));
+        centerImagePanel.Controls.Add(MakeButton("Entfernen", S(100), (s, e) => { wheel.look.centerImage = ""; LookChanged(); }));
 
+        AddRow(t, "", Header("Drehung"));
         AddRow(t, "Drehdauer (Sekunden):", spinSeconds);
         AddRow(t, "Umdrehungen:", spins);
         AddRow(t, "Anzeige nach Gewinn (Sek.):", holdSeconds);
-        AddRow(t, "Schriftgröße:", fontSize);
-        AddRow(t, "Randbreite:", borderWidth);
-        AddRow(t, "Randfarbe:", borderColorBtn);
-        AddRow(t, "Zeigerfarbe:", pointerColorBtn);
-        AddRow(t, "Farbe der Mitte:", centerColorBtn);
+        AddRow(t, "Blinken des Gewinnfelds (ms):", blinkMs);
+        AddRow(t, "Gewinnfarbe (blinkt mit Weiß):", winColorBtn);
+        AddRow(t, "", tickBox);
         AddRow(t, "Lautstärke (%):", volume);
         AddRow(t, "", proportionalBox);
+
+        AddRow(t, "", Header("Rad"));
+        AddRow(t, "Randbreite:", borderWidth);
+        AddRow(t, "Randfarbe:", borderColorBtn);
+        AddRow(t, "Trennlinien-Breite:", lineWidth);
+        AddRow(t, "Trennlinien-Farbe:", lineColorBtn);
+        AddRow(t, "Hohle Mitte (% vom Radius):", innerRadius);
+        AddRow(t, "Nabe (% vom Radius):", hubSize);
+        AddRow(t, "Farbe der Nabe:", centerColorBtn);
+        AddRow(t, "Bild in der Mitte:", centerImagePanel);
+        AddRow(t, "", showPointerBox);
+        AddRow(t, "Zeigerfarbe:", pointerColorBtn);
+
+        AddRow(t, "", Header("Texte und Bilder auf den Feldern"));
+        AddRow(t, "", showTextBox);
+        AddRow(t, "Schriftgröße:", fontSize);
+        AddRow(t, "Bild-Ausrichtung:", imageModeBox);
+        AddRow(t, "Bildgröße (% vom Radius):", imageSize);
+        AddRow(t, "Abstand zur Mitte (%):", imageDistance);
+        AddRow(t, "", Hint("Für Bilder, die wie ein Tortenstück gestaltet sind, passt meist „Oberkante zur Mitte“. " +
+                           "Bildgröße = Länge des Bildes vom inneren zum äußeren Ende."));
+
+        AddRow(t, "", Header("Einblendung"));
         AddRow(t, "", bannerBox);
         AddRow(t, "", idleVisibleBox);
-        AddRow(t, "", tickBox);
 
         EventHandler changed = (s, e) =>
         {
-            if (loading) return;
+            if (loading || wheel == null) return;
             var l = wheel.look;
             l.spinSeconds = (double)spinSeconds.Value; l.spins = (int)spins.Value; l.holdSeconds = (double)holdSeconds.Value;
-            l.fontSize = (int)fontSize.Value; l.borderWidth = (int)borderWidth.Value; l.volume = (double)volume.Value / 100.0;
-            l.borderColor = ToHex(borderColorBtn.BackColor); l.pointerColor = ToHex(pointerColorBtn.BackColor);
-            l.centerColor = ToHex(centerColorBtn.BackColor);
+            l.blinkMs = (int)blinkMs.Value; l.volume = (double)volume.Value / 100.0;
+            l.borderWidth = (int)borderWidth.Value; l.lineWidth = (int)lineWidth.Value;
+            l.innerRadius = (int)innerRadius.Value; l.hubSize = (int)hubSize.Value; l.fontSize = (int)fontSize.Value;
+            l.imageSize = (int)imageSize.Value; l.imageDistance = (int)imageDistance.Value;
+            l.borderColor = ToHex(borderColorBtn.BackColor); l.lineColor = ToHex(lineColorBtn.BackColor);
+            l.pointerColor = ToHex(pointerColorBtn.BackColor); l.centerColor = ToHex(centerColorBtn.BackColor);
+            l.winColor = ToHex(winColorBtn.BackColor);
             l.proportional = proportionalBox.Checked; l.showBanner = bannerBox.Checked;
             l.idleVisible = idleVisibleBox.Checked; l.tick = tickBox.Checked;
-            MarkDirty();
-            UpdatePercentages();
-            preview.Invalidate();
+            l.showText = showTextBox.Checked; l.showPointer = showPointerBox.Checked;
+            if (imageModeBox.SelectedIndex >= 0) l.imageMode = ImageModes[imageModeBox.SelectedIndex][0];
+            LookChanged();
         };
-        foreach (var n in new[] { spinSeconds, spins, holdSeconds, fontSize, borderWidth, volume }) n.ValueChanged += changed;
-        foreach (var b in new[] { borderColorBtn, pointerColorBtn, centerColorBtn }) b.BackColorChanged += changed;
-        foreach (var c in new[] { proportionalBox, bannerBox, idleVisibleBox, tickBox }) c.CheckedChanged += changed;
+        foreach (var n in new[] { spinSeconds, spins, holdSeconds, blinkMs, volume, borderWidth, lineWidth, innerRadius, hubSize, fontSize, imageSize, imageDistance })
+            n.ValueChanged += changed;
+        foreach (var b in new[] { borderColorBtn, lineColorBtn, pointerColorBtn, centerColorBtn, winColorBtn }) b.BackColorChanged += changed;
+        foreach (var c in new[] { proportionalBox, bannerBox, idleVisibleBox, tickBox, showTextBox, showPointerBox }) c.CheckedChanged += changed;
+        imageModeBox.SelectedIndexChanged += changed;
 
         page.Controls.Add(t);
         return page;
     }
 
-    TabPage BuildObsTab()
+    void LookChanged()
     {
-        var page = new TabPage("OBS") { Padding = new Padding(S(12)), AutoScroll = true };
+        MarkDirty();
+        UpdatePercentages();
+        centerImageBox.Image = GetImage(wheel.look.centerImage);
+        preview.Invalidate();
+    }
+
+    Panel BuildObsPage()
+    {
+        var page = NewPage();
         var t = NewTable();
         AddRow(t, "", Hint("Beim Speichern legt das Glücksrad in OBS automatisch eine eigene Szene mit einer Browser-Quelle an " +
                            "und aktualisiert sie bei jeder Änderung. Benennst du das Rad um, wird auch in OBS umbenannt."));
         obsStatusLabel = new Label { AutoSize = true };
         AddRow(t, "OBS-Status:", obsStatusLabel);
-        obsSceneLabel = new Label { AutoSize = true, Font = new Font(Font, FontStyle.Bold) };
-        obsInputLabel = new Label { AutoSize = true, Font = new Font(Font, FontStyle.Bold) };
+        obsSceneLabel = new Label { AutoSize = true, Font = new Font("Segoe UI", 10f, FontStyle.Bold) };
+        obsInputLabel = new Label { AutoSize = true, Font = new Font("Segoe UI", 10f, FontStyle.Bold) };
         AddRow(t, "Szene:", obsSceneLabel);
         AddRow(t, "Browser-Quelle:", obsInputLabel);
         obsWidth = Num(200, 4000, 0);
         obsHeight = Num(200, 4000, 0);
         AddRow(t, "Breite der Quelle:", obsWidth);
         AddRow(t, "Höhe der Quelle:", obsHeight);
-        addToSceneBox = new ComboBox { Width = S(320), DropDownStyle = ComboBoxStyle.DropDownList };
+        addToSceneBox = new ComboBox { Width = S(360), DropDownStyle = ComboBoxStyle.DropDownList };
         AddRow(t, "Zusätzlich einfügen in:", addToSceneBox);
         AddRow(t, "", Hint("Wähle z. B. deine Live-Szene: Die Rad-Szene wird dort einmalig als Quelle eingefügt, " +
                            "damit das Rad im Stream erscheint. Das Rad ist nur während einer Drehung sichtbar."));
-        AddRow(t, "", MakeButton("Szenenliste neu laden", S(170), (s, e) => FillScenes()));
-        filePathBox = new TextBox { Width = S(520), ReadOnly = true };
+        AddRow(t, "", MakeButton("Szenenliste neu laden", S(200), (s, e) => FillScenes()));
+        filePathBox = new TextBox { Width = S(560), ReadOnly = true };
         AddRow(t, "Overlay-Datei:", filePathBox);
         var fileButtons = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
-        fileButtons.Controls.Add(MakeButton("Pfad kopieren", S(130), (s, e) => { try { Clipboard.SetText(filePathBox.Text); SetStatus("Pfad kopiert."); } catch { } }));
-        fileButtons.Controls.Add(MakeButton("Ordner öffnen", S(130), (s, e) =>
+        fileButtons.Controls.Add(MakeButton("Pfad kopieren", S(140), (s, e) => { try { Clipboard.SetText(filePathBox.Text); SetStatus("Pfad kopiert."); } catch { } }));
+        fileButtons.Controls.Add(MakeButton("Ordner öffnen", S(140), (s, e) =>
         {
             try { Directory.CreateDirectory(GrCore.OverlayDir()); System.Diagnostics.Process.Start("explorer.exe", GrCore.OverlayDir()); } catch { }
         }));
-        fileButtons.Controls.Add(MakeButton("Jetzt mit OBS synchronisieren", S(220), (s, e) => SaveAll(true)));
+        fileButtons.Controls.Add(MakeButton("Jetzt mit OBS synchronisieren", S(250), (s, e) => SaveAll(true)));
         AddRow(t, "", fileButtons);
 
         EventHandler changed = (s, e) =>
         {
-            if (loading) return;
+            if (loading || wheel == null) return;
             wheel.obs.width = (int)obsWidth.Value;
             wheel.obs.height = (int)obsHeight.Value;
             wheel.obs.addToScene = addToSceneBox.SelectedIndex > 0 ? addToSceneBox.SelectedItem.ToString() : "";
@@ -890,11 +1369,22 @@ public class GrSettingsForm : Form
     }
 
     // ================= Räder =================
+    void DrawWheelItem(object sender, DrawItemEventArgs e)
+    {
+        if (e.Index < 0 || e.Index >= cfg.wheels.Count) return;
+        bool sel = (e.State & DrawItemState.Selected) != 0;
+        using (var b = new SolidBrush(sel ? theme.Selection : theme.Input)) e.Graphics.FillRectangle(b, e.Bounds);
+        var w = cfg.wheels[e.Index];
+        string text = (string.IsNullOrEmpty(w.name) ? "(ohne Name)" : w.name) + (w.enabled ? "" : "  (aus)");
+        TextRenderer.DrawText(e.Graphics, text, wheelList.Font, new Rectangle(e.Bounds.X + S(6), e.Bounds.Y, e.Bounds.Width - S(6), e.Bounds.Height),
+            sel ? theme.SelectionText : (w.enabled ? theme.Text : theme.Dim), TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+    }
+
     void RefreshWheelList(int select)
     {
         loading = true;
         wheelList.Items.Clear();
-        foreach (var w in cfg.wheels) wheelList.Items.Add(WheelListText(w));
+        foreach (var w in cfg.wheels) wheelList.Items.Add(w.id);
         loading = false;
         if (cfg.wheels.Count > 0)
         {
@@ -905,31 +1395,16 @@ public class GrSettingsForm : Form
         else
         {
             wheel = null;
-            tabs.Enabled = false;
+            pageHost.Enabled = false;
             preview.Invalidate();
         }
-    }
-
-    string WheelListText(GrWheel w)
-    {
-        return (string.IsNullOrEmpty(w.name) ? "(ohne Name)" : w.name) + (w.enabled ? "" : "  (aus)");
-    }
-
-    void UpdateWheelListText()
-    {
-        int i = cfg.wheels.IndexOf(wheel);
-        if (i < 0 || i >= wheelList.Items.Count) return;
-        bool l = loading;
-        loading = true;
-        wheelList.Items[i] = WheelListText(wheel);
-        loading = l;
     }
 
     void SelectWheel(int index)
     {
         if (grid.IsCurrentCellInEditMode) grid.EndEdit();
         wheel = cfg.wheels[index];
-        tabs.Enabled = true;
+        pageHost.Enabled = true;
         loading = true;
         nameBox.Text = wheel.name;
         enabledBox.Checked = wheel.enabled;
@@ -948,12 +1423,21 @@ public class GrSettingsForm : Form
 
         var l = wheel.look;
         spinSeconds.Value = Clamp((decimal)l.spinSeconds, spinSeconds); spins.Value = Clamp(l.spins, spins);
-        holdSeconds.Value = Clamp((decimal)l.holdSeconds, holdSeconds); fontSize.Value = Clamp(l.fontSize, fontSize);
-        borderWidth.Value = Clamp(l.borderWidth, borderWidth); volume.Value = Clamp((decimal)(l.volume * 100), volume);
-        borderColorBtn.BackColor = FromHex(l.borderColor); pointerColorBtn.BackColor = FromHex(l.pointerColor);
-        centerColorBtn.BackColor = FromHex(l.centerColor);
+        holdSeconds.Value = Clamp((decimal)l.holdSeconds, holdSeconds); blinkMs.Value = Clamp(l.blinkMs, blinkMs);
+        volume.Value = Clamp((decimal)(l.volume * 100), volume);
+        borderWidth.Value = Clamp(l.borderWidth, borderWidth); lineWidth.Value = Clamp(l.lineWidth, lineWidth);
+        innerRadius.Value = Clamp(l.innerRadius, innerRadius); hubSize.Value = Clamp(l.hubSize, hubSize);
+        fontSize.Value = Clamp(l.fontSize, fontSize);
+        imageSize.Value = Clamp(l.imageSize, imageSize); imageDistance.Value = Clamp(l.imageDistance, imageDistance);
+        borderColorBtn.BackColor = FromHex(l.borderColor); lineColorBtn.BackColor = FromHex(l.lineColor);
+        pointerColorBtn.BackColor = FromHex(l.pointerColor); centerColorBtn.BackColor = FromHex(l.centerColor);
+        winColorBtn.BackColor = FromHex(l.winColor);
         proportionalBox.Checked = l.proportional; bannerBox.Checked = l.showBanner;
         idleVisibleBox.Checked = l.idleVisible; tickBox.Checked = l.tick;
+        showTextBox.Checked = l.showText; showPointerBox.Checked = l.showPointer;
+        int mode = Array.FindIndex(ImageModes, m => m[0] == l.imageMode);
+        imageModeBox.SelectedIndex = mode >= 0 ? mode : 1;
+        centerImageBox.Image = GetImage(l.centerImage);
 
         obsWidth.Value = Clamp(wheel.obs.width, obsWidth);
         obsHeight.Value = Clamp(wheel.obs.height, obsHeight);
@@ -962,6 +1446,8 @@ public class GrSettingsForm : Form
         FillGrid();
         loading = false;
         UpdateObsLabels();
+        LoadDetail();
+        wheelList.Invalidate();
         preview.Invalidate();
     }
 
@@ -985,7 +1471,7 @@ public class GrSettingsForm : Form
         GrCore.Normalize(cfg);
         MarkDirty();
         RefreshWheelList(cfg.wheels.Count - 1);
-        tabs.SelectedIndex = 0;
+        navButtons[0].Checked = true;
         nameBox.Focus();
         nameBox.SelectAll();
     }
@@ -1016,25 +1502,86 @@ public class GrSettingsForm : Form
         RefreshWheelList(i);
     }
 
-    // ================= Felder (Tabelle) =================
+    void ExportWheel()
+    {
+        if (wheel == null) return;
+        using (var dlg = new SaveFileDialog())
+        {
+            dlg.Title = "Rad exportieren";
+            dlg.Filter = "Glücksrad (*.json)|*.json";
+            dlg.FileName = "Gluecksrad_" + string.Join("_", wheel.name.Split(Path.GetInvalidFileNameChars())) + ".json";
+            if (dlg.ShowDialog(this) != DialogResult.OK) return;
+            File.WriteAllText(dlg.FileName, GrCore.ExportWheel(wheel), new System.Text.UTF8Encoding(false));
+            SetStatus("Rad exportiert: " + dlg.FileName);
+        }
+    }
+
+    void ImportWheel()
+    {
+        using (var dlg = new OpenFileDialog())
+        {
+            dlg.Title = "Rad importieren";
+            dlg.Filter = "Glücksrad (*.json)|*.json";
+            if (dlg.ShowDialog(this) != DialogResult.OK) return;
+            GrWheel w;
+            try { w = GrCore.ImportWheel(File.ReadAllText(dlg.FileName)); }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "Die Datei konnte nicht gelesen werden: " + ex.Message, "Import", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            var existing = cfg.wheels.FirstOrDefault(x => string.Equals(x.name, w.name, StringComparison.OrdinalIgnoreCase));
+            if (existing != null)
+            {
+                var r = MessageBox.Show(this, "Es gibt schon ein Rad „" + w.name + "“. Soll es ersetzt werden?\n\n" +
+                    "Ja = ersetzen (OBS-Szene bleibt erhalten)\nNein = als neues Rad hinzufügen", "Import",
+                    MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+                if (r == DialogResult.Cancel) return;
+                if (r == DialogResult.Yes)
+                {
+                    w.id = existing.id;
+                    w.obs.syncedScene = existing.obs.syncedScene;
+                    w.obs.syncedInput = existing.obs.syncedInput;
+                    if (w.obs.addToScene == "") w.obs.addToScene = existing.obs.addToScene;
+                    int i = cfg.wheels.IndexOf(existing);
+                    cfg.wheels[i] = w;
+                    MarkDirty();
+                    RefreshWheelList(i);
+                    SetStatus("Rad „" + w.name + "“ ersetzt. Zum Übernehmen „Speichern“ klicken.");
+                    return;
+                }
+            }
+            w.id = Guid.NewGuid().ToString("N").Substring(0, 12);
+            w.name = UniqueName(w.name);
+            w.obs.syncedScene = ""; w.obs.syncedInput = "";
+            foreach (var other in cfg.wheels) foreach (var id in w.triggers.rewardIds) other.triggers.rewardIds.Remove(id);
+            cfg.wheels.Add(w);
+            MarkDirty();
+            RefreshWheelList(cfg.wheels.Count - 1);
+            SetStatus("Rad „" + w.name + "“ importiert. Zum Übernehmen „Speichern“ klicken.");
+        }
+    }
+
+    // ================= Felder =================
+    GrSegment CurrentSegment()
+    {
+        if (wheel == null || grid.CurrentRow == null) return null;
+        int i = grid.CurrentRow.Index;
+        return i >= 0 && i < wheel.segments.Count ? wheel.segments[i] : null;
+    }
+
     void FillGrid()
     {
         bool l = loading;
         loading = true;
-        var actionCol = (DataGridViewComboBoxColumn)grid.Columns[ColAction];
-        var items = new List<string> { "" };
-        items.AddRange(actionNames);
-        foreach (var s in wheel.segments)
-            if (s.action != "" && !items.Contains(s.action)) items.Add(s.action);
-        actionCol.Items.Clear();
-        actionCol.Items.AddRange(items.ToArray());
-
+        int keep = grid.CurrentRow != null ? grid.CurrentRow.Index : 0;
         grid.Rows.Clear();
         foreach (var s in wheel.segments)
         {
             int r = grid.Rows.Add();
             FillRow(grid.Rows[r], s);
         }
+        if (grid.Rows.Count > 0) grid.CurrentCell = grid.Rows[Math.Max(0, Math.Min(keep, grid.Rows.Count - 1))].Cells[ColText];
         loading = l;
         UpdatePercentages();
     }
@@ -1044,12 +1591,92 @@ public class GrSettingsForm : Form
         row.Cells[ColText].Value = s.text;
         SetColorCell(row.Cells[ColColor], s.color);
         SetColorCell(row.Cells[ColTextColor], s.textColor);
-        row.Cells[ColImage].Value = s.image != "" ? "✔ Bild" : "–";
+        row.Cells[ColImage].Value = s.image != "" ? "✔" : "–";
         row.Cells[ColWeight].Value = s.weight.ToString("0.##", CultureInfo.CurrentCulture);
-        row.Cells[ColChat].Value = s.chat;
-        row.Cells[ColAction].Value = s.action;
-        row.Cells[ColSound].Value = s.sound != "" ? "✔ Sound" : "–";
+        row.Cells[ColAction].Value = s.action != "" ? s.action : "–";
         row.Cells[ColFree].Value = s.freeSpin;
+    }
+
+    void RefreshCurrentRow()
+    {
+        var s = CurrentSegment();
+        if (s == null) return;
+        bool l = loading;
+        loading = true;
+        FillRow(grid.CurrentRow, s);
+        loading = l;
+        MarkDirty();
+        preview.Invalidate();
+    }
+
+    void LoadDetail()
+    {
+        var s = CurrentSegment();
+        bool l = loading;
+        loading = true;
+        detail.Enabled = s != null;
+        if (s != null)
+        {
+            segTitle.Text = "Feld " + (grid.CurrentRow.Index + 1) + " bearbeiten";
+            if (segTextBox.Text != s.text) segTextBox.Text = s.text;
+            if (segChatBox.Text != s.chat) segChatBox.Text = s.chat;
+            segActionBox.Text = s.action != "" ? s.action : "(keine)";
+            segSoundLabel.Text = s.sound != "" ? "✔ Sound gesetzt" : "kein Sound";
+            segFreeBox.Checked = s.freeSpin;
+            segImageBox.Image = GetImage(s.image);
+            UpdateChatPreview();
+        }
+        else
+        {
+            segTitle.Text = "Kein Feld ausgewählt";
+            segImageBox.Image = null;
+        }
+        loading = l;
+    }
+
+    void InsertVariable(string placeholder)
+    {
+        var s = CurrentSegment();
+        if (s == null) return;
+        int pos = Math.Min(segChatBox.SelectionStart, segChatBox.Text.Length);
+        string text = segChatBox.Text.Remove(pos, Math.Min(segChatBox.SelectionLength, segChatBox.Text.Length - pos));
+        // Leerzeichen ergänzen, damit der Platzhalter nicht an einem Wort klebt
+        string insert = placeholder;
+        if (pos > 0 && !char.IsWhiteSpace(text[pos - 1])) insert = " " + insert;
+        if (pos < text.Length && !char.IsWhiteSpace(text[pos]) && !char.IsPunctuation(text[pos])) insert += " ";
+        segChatBox.Text = text.Insert(pos, insert);
+        segChatBox.SelectionStart = pos + insert.Length;
+        segChatBox.SelectionLength = 0;
+        segChatBox.Focus();
+    }
+
+    void UpdateChatPreview()
+    {
+        var s = CurrentSegment();
+        if (s == null || segPreviewLabel == null) return;
+        if (previewUser == null) previewUser = TestUser();
+        bool cp = wheel.triggers.rewardIds.Count > 0;
+        var values = new Dictionary<string, string>();
+        values["%user%"] = previewUser;
+        values["%prize%"] = s.text;
+        values["%wheel%"] = wheel.name;
+        values["%amount%"] = cp ? "5000" : "500";
+        values["%trigger%"] = cp ? "Kanalpunkte" : "Bits";
+        values["%field%"] = (grid.CurrentRow.Index + 1).ToString();
+        segPreviewLabel.Text = s.chat.Trim() == "" ? "(keine Chatnachricht – es wird nichts gepostet)" : GrCore.FillText(s.chat, values);
+    }
+
+    void PickAction()
+    {
+        var s = CurrentSegment();
+        if (s == null) return;
+        using (var dlg = new GrActionPicker(actions, s.action, theme, S))
+        {
+            if (dlg.ShowDialog(this) != DialogResult.OK) return;
+            s.action = dlg.Selected ?? "";
+            RefreshCurrentRow();
+            LoadDetail();
+        }
     }
 
     void SetColorCell(DataGridViewCell cell, string hex)
@@ -1071,10 +1698,8 @@ public class GrSettingsForm : Form
         string str = v == null ? "" : v.ToString();
         switch (e.ColumnIndex)
         {
-            case ColText: s.text = str; break;
-            case ColChat: s.chat = str; break;
-            case ColAction: s.action = str; break;
-            case ColFree: s.freeSpin = v is bool && (bool)v; break;
+            case ColText: s.text = str; LoadDetail(); break;
+            case ColFree: s.freeSpin = v is bool && (bool)v; LoadDetail(); break;
             case ColWeight:
                 double d;
                 if (GrCore.TryParseNumber(str, out d) && d >= 0) s.weight = d;
@@ -1112,39 +1737,6 @@ public class GrSettingsForm : Form
                 preview.Invalidate();
             }
         }
-        else if (e.ColumnIndex == ColImage || e.ColumnIndex == ColSound)
-        {
-            bool isImage = e.ColumnIndex == ColImage;
-            var menu = new ContextMenuStrip();
-            menu.Items.Add(isImage ? "Bild auswählen …" : "Sound auswählen …", null, (o, a) =>
-            {
-                string uri = PickFileAsDataUri(isImage);
-                if (uri == null) return;
-                if (isImage) s.image = uri; else s.sound = uri;
-                AfterMediaChange(row, s);
-            });
-            var remove = menu.Items.Add(isImage ? "Bild entfernen" : "Sound entfernen", null, (o, a) =>
-            {
-                if (isImage) s.image = ""; else s.sound = "";
-                AfterMediaChange(row, s);
-            });
-            remove.Enabled = isImage ? s.image != "" : s.sound != "";
-            if (!isImage)
-            {
-                var play = menu.Items.Add("Anhören", null, (o, a) => PlayDataUri(s.sound));
-                play.Enabled = s.sound != "";
-            }
-            menu.Show(Cursor.Position);
-        }
-    }
-
-    void AfterMediaChange(DataGridViewRow row, GrSegment s)
-    {
-        loading = true;
-        FillRow(row, s);
-        loading = false;
-        MarkDirty();
-        preview.Invalidate();
     }
 
     void AddSegment()
@@ -1164,26 +1756,28 @@ public class GrSettingsForm : Form
 
     void RemoveSegment()
     {
-        if (wheel == null || grid.CurrentCell == null) return;
-        int i = grid.CurrentCell.RowIndex;
+        if (wheel == null || grid.CurrentRow == null) return;
+        int i = grid.CurrentRow.Index;
         if (i < 0 || i >= wheel.segments.Count) return;
         wheel.segments.RemoveAt(i);
         FillGrid();
         if (grid.Rows.Count > 0) grid.CurrentCell = grid.Rows[Math.Min(i, grid.Rows.Count - 1)].Cells[ColText];
+        LoadDetail();
         MarkDirty();
         preview.Invalidate();
     }
 
     void MoveSegment(int dir)
     {
-        if (wheel == null || grid.CurrentCell == null) return;
-        int i = grid.CurrentCell.RowIndex, j = i + dir, col = grid.CurrentCell.ColumnIndex;
+        if (wheel == null || grid.CurrentRow == null) return;
+        int i = grid.CurrentRow.Index, j = i + dir;
         if (i < 0 || j < 0 || j >= wheel.segments.Count) return;
         var tmp = wheel.segments[i];
         wheel.segments[i] = wheel.segments[j];
         wheel.segments[j] = tmp;
         FillGrid();
-        grid.CurrentCell = grid.Rows[j].Cells[col];
+        grid.CurrentCell = grid.Rows[j].Cells[ColText];
+        LoadDetail();
         MarkDirty();
         preview.Invalidate();
     }
@@ -1198,6 +1792,7 @@ public class GrSettingsForm : Form
         {
             double p = total > 0 ? Math.Max(0, wheel.segments[i].weight) / total * 100 : 100.0 / wheel.segments.Count;
             grid.Rows[i].Cells[ColPercent].Value = p.ToString("0.0", CultureInfo.CurrentCulture) + " %";
+            grid.Rows[i].Cells[ColPercent].Style.ForeColor = theme.Dim;
         }
         loading = l;
         sumLabel.Text = wheel.segments.Count + " Felder · Summe der Chancen: " + total.ToString("0.##", CultureInfo.CurrentCulture);
@@ -1272,7 +1867,7 @@ public class GrSettingsForm : Form
         if (wheel == null) return;
         bool connected = ObsConnected();
         obsStatusLabel.Text = connected ? "verbunden ✔" : "nicht verbunden – Szene/Quelle werden beim nächsten Speichern mit verbundenem OBS angelegt";
-        obsStatusLabel.ForeColor = connected ? Color.ForestGreen : Color.Firebrick;
+        obsStatusLabel.ForeColor = connected ? Color.FromArgb(60, 180, 90) : Color.FromArgb(230, 80, 80);
         obsSceneLabel.Text = GrCore.ObsSceneName(wheel);
         obsInputLabel.Text = GrCore.ObsInputName(wheel);
         filePathBox.Text = GrCore.OverlayPath(wheel);
@@ -1313,10 +1908,17 @@ public class GrSettingsForm : Form
             Directory.CreateDirectory(dir);
             string resultId = ResultActionId();
             var keep = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var changed = new HashSet<string>();
             foreach (var w in cfg.wheels)
             {
                 string path = GrCore.OverlayPath(w);
-                File.WriteAllText(path, GrCore.BuildOverlayHtml(overlayTemplate, cfg, w, resultId), new System.Text.UTF8Encoding(false));
+                string html = GrCore.BuildOverlayHtml(overlayTemplate, cfg, w, resultId);
+                string old = File.Exists(path) ? File.ReadAllText(path) : null;
+                if (old != html)
+                {
+                    File.WriteAllText(path, html, new System.Text.UTF8Encoding(false));
+                    changed.Add(w.id);
+                }
                 keep.Add(Path.GetFileName(path));
             }
             foreach (var f in Directory.GetFiles(dir, "rad_*.html"))
@@ -1331,7 +1933,7 @@ public class GrSettingsForm : Form
                     {
                         try
                         {
-                            string r = GrCore.SyncObs(cph, cfg, w);
+                            string r = GrCore.SyncObs(cph, cfg, w, changed.Contains(w.id));
                             if (r != "") report.Add(w.name + ": " + r);
                         }
                         catch (Exception ex) { report.Add(w.name + ": OBS-Fehler " + ex.Message); }
@@ -1360,9 +1962,10 @@ public class GrSettingsForm : Form
     {
         if (wheel == null) return;
         if (dirty && !SaveAll(true)) return;
-        GrCore.StartSpin(cph, wheel, "Test", true);
+        bool runActions = testActionsBox.Checked;
+        GrCore.StartSpin(cph, wheel, TestUser(), !runActions);
         SetStatus("Test-Drehung gestartet für „" + wheel.name + "“. Die Szene muss in OBS sichtbar sein. " +
-                  "Bei Test-Drehungen werden keine Gewinn-Actions ausgeführt.");
+                  (runActions ? "Gewinn-Actions werden ausgeführt." : "Gewinn-Actions werden nicht ausgeführt."));
     }
 
     void OnFormClosing(object sender, FormClosingEventArgs e)
@@ -1388,53 +1991,51 @@ public class GrSettingsForm : Form
 
     void SetStatus(string text) { statusLabel.Text = text; }
 
-    // ================= Vorschau =================
+    // ================= Vorschau (gleiche Geometrie wie overlay.html) =================
     void PaintPreview(object sender, PaintEventArgs e)
     {
         var g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
         g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAlias;
         if (wheel == null || wheel.segments.Count == 0) return;
 
-        float size = Math.Min(preview.Width, preview.Height) - 40;
+        float size = Math.Min(preview.Width, preview.Height) - S(24);
         if (size < 50) return;
-        float cx = preview.Width / 2f, cy = preview.Height / 2f, r = size / 2f;
-        var rect = new RectangleF(cx - r, cy - r, size, size);
+        float cx = preview.Width / 2f, cy = preview.Height / 2f;
+        var L = wheel.look;
+        float scale = size / 1000f;
+        float R = 440 * scale;
+        float inner = Math.Min(0.9f, Math.Max(0, L.innerRadius / 100f)) * R;
         var angles = SegmentAngles();
-        var look = wheel.look;
-        float scale = size / 880f;
 
         for (int i = 0; i < wheel.segments.Count; i++)
         {
             var s = wheel.segments[i];
             float start = (float)angles[i][0] - 90f, sweep = (float)angles[i][1];
             if (sweep <= 0) continue;
-            using (var b = new SolidBrush(FromHex(s.color))) g.FillPie(b, rect.X, rect.Y, rect.Width, rect.Height, start, sweep);
-            using (var p = new Pen(FromHex(look.borderColor), Math.Max(1f, 2 * scale))) g.DrawPie(p, rect.X, rect.Y, rect.Width, rect.Height, start, sweep);
+            using (var path = new GraphicsPath())
+            {
+                path.AddArc(cx - R, cy - R, 2 * R, 2 * R, start, sweep);
+                if (inner > 0) path.AddArc(cx - inner, cy - inner, 2 * inner, 2 * inner, start + sweep, -sweep);
+                else path.AddLine(cx + R * (float)Math.Cos((start + sweep) * Math.PI / 180), cy + R * (float)Math.Sin((start + sweep) * Math.PI / 180), cx, cy);
+                path.CloseFigure();
+                using (var b = new SolidBrush(FromHex(s.color))) g.FillPath(b, path);
+                if (L.lineWidth > 0)
+                    using (var p = new Pen(FromHex(L.lineColor), Math.Max(1f, L.lineWidth * scale))) g.DrawPath(p, path);
+            }
 
             float mid = start + sweep / 2f;
             var state = g.Save();
             g.TranslateTransform(cx, cy);
             g.RotateTransform(mid);
             var img = GetImage(s.image);
-            bool hasText = !string.IsNullOrWhiteSpace(s.text);
-            if (img != null)
+            if (img != null) DrawSegmentImage(g, img, R, L, mid);
+            if (L.showText && !string.IsNullOrWhiteSpace(s.text))
             {
-                double arcW = 2 * r * 0.62 * Math.Sin(Math.Min(sweep, 170) / 2 * Math.PI / 180);
-                float w = (float)Math.Min(arcW, r * 0.5);
-                float h = w * img.Height / Math.Max(1, img.Width);
-                if (h > r * 0.45f) { h = r * 0.45f; w = h * img.Width / Math.Max(1, img.Height); }
-                float dist = hasText ? r * 0.68f : r * 0.62f;
-                var st2 = g.Save();
-                g.TranslateTransform(dist, 0);
-                g.RotateTransform(90);
-                g.DrawImage(img, -w / 2, -h / 2, w, h);
-                g.Restore(st2);
-            }
-            if (hasText)
-            {
-                float fs = Math.Max(6f, look.fontSize * scale);
-                float maxLen = r * (img != null ? 0.42f : 0.72f);
+                float fs = Math.Max(6f, L.fontSize * scale);
+                float tx = R * 0.92f;
+                float maxLen = Math.Max(20 * scale, tx - Math.Max(inner, R * 0.15f) - 10 * scale);
                 Font f = new Font("Segoe UI", fs, FontStyle.Bold, GraphicsUnit.Pixel);
                 while (g.MeasureString(s.text, f).Width > maxLen && fs > 6f)
                 {
@@ -1443,18 +2044,59 @@ public class GrSettingsForm : Form
                     f = new Font("Segoe UI", fs, FontStyle.Bold, GraphicsUnit.Pixel);
                 }
                 var sz = g.MeasureString(s.text, f);
-                float tx = img != null ? r * 0.45f : r * 0.9f;
                 using (var b = new SolidBrush(FromHex(s.textColor))) g.DrawString(s.text, f, b, tx - sz.Width, -sz.Height / 2);
                 f.Dispose();
             }
             g.Restore(state);
         }
-        using (var p = new Pen(FromHex(look.borderColor), Math.Max(1f, look.borderWidth * scale))) g.DrawEllipse(p, rect);
-        float hub = 50 * scale;
-        using (var b = new SolidBrush(FromHex(look.centerColor))) g.FillEllipse(b, cx - hub, cy - hub, hub * 2, hub * 2);
-        var tri = new[] { new PointF(cx, cy - r + 38 * scale), new PointF(cx - 32 * scale, cy - r - 32 * scale), new PointF(cx + 32 * scale, cy - r - 32 * scale) };
-        using (var b = new SolidBrush(FromHex(look.pointerColor))) g.FillPolygon(b, tri);
-        using (var p = new Pen(Color.FromArgb(150, 0, 0, 0), 2)) g.DrawPolygon(p, tri);
+        if (L.borderWidth > 0)
+            using (var p = new Pen(FromHex(L.borderColor), Math.Max(1f, L.borderWidth * scale))) g.DrawEllipse(p, cx - R, cy - R, 2 * R, 2 * R);
+
+        float hub = inner > 0 ? inner : Math.Max(0, L.hubSize / 100f) * R;
+        var centerImg = GetImage(L.centerImage);
+        if (hub > 0)
+        {
+            if (centerImg != null)
+            {
+                using (var clip = new GraphicsPath())
+                {
+                    clip.AddEllipse(cx - hub, cy - hub, 2 * hub, 2 * hub);
+                    var st = g.Save();
+                    g.SetClip(clip);
+                    float s2 = hub * 2 / Math.Max(centerImg.Width, centerImg.Height);
+                    g.DrawImage(centerImg, cx - centerImg.Width * s2 / 2, cy - centerImg.Height * s2 / 2, centerImg.Width * s2, centerImg.Height * s2);
+                    g.Restore(st);
+                }
+            }
+            else if (inner == 0)
+                using (var b = new SolidBrush(FromHex(L.centerColor))) g.FillEllipse(b, cx - hub, cy - hub, hub * 2, hub * 2);
+        }
+        if (L.showPointer)
+        {
+            var tri = new[] { new PointF(cx, cy - R + 38 * scale), new PointF(cx - 32 * scale, cy - R - 32 * scale), new PointF(cx + 32 * scale, cy - R - 32 * scale) };
+            using (var b = new SolidBrush(FromHex(L.pointerColor))) g.FillPolygon(b, tri);
+            using (var p = new Pen(Color.FromArgb(150, 0, 0, 0), 2)) g.DrawPolygon(p, tri);
+        }
+    }
+
+    // Wie drawSegmentImage() im Overlay: +x zeigt von der Mitte nach außen.
+    static void DrawSegmentImage(Graphics g, Image img, float R, GrLook L, float midDeg)
+    {
+        string mode = L.imageMode ?? "outward";
+        float len = Math.Max(1, L.imageSize) / 100f * R;
+        float start = Math.Max(0, L.imageDistance) / 100f * R;
+        float iw = img.Width, ih = img.Height, w, h, radial;
+        if (mode == "inward" || mode == "outward") { h = len; w = len * iw / ih; radial = h; }
+        else if (mode == "upright") { float s = len / Math.Max(iw, ih); w = iw * s; h = ih * s; radial = len; }
+        else { w = len; h = len * ih / iw; radial = w; }
+        var st = g.Save();
+        g.TranslateTransform(start + radial / 2, 0);
+        if (mode == "inward") g.RotateTransform(-90);
+        else if (mode == "outward") g.RotateTransform(90);
+        else if (mode == "right") g.RotateTransform(180);
+        else if (mode == "upright") g.RotateTransform(-midDeg);
+        g.DrawImage(img, -w / 2, -h / 2, w, h);
+        g.Restore(st);
     }
 
     List<double[]> SegmentAngles()
@@ -1492,7 +2134,7 @@ public class GrSettingsForm : Form
     {
         using (var dlg = new OpenFileDialog())
         {
-            dlg.Title = image ? "Bild für das Feld auswählen" : "Sound für das Feld auswählen";
+            dlg.Title = image ? "Bild auswählen" : "Sound auswählen";
             dlg.Filter = image ? "Bilder|*.png;*.jpg;*.jpeg;*.gif;*.webp;*.svg" : "Sounds|*.mp3;*.wav;*.ogg";
             if (dlg.ShowDialog(this) != DialogResult.OK) return null;
             var info = new FileInfo(dlg.FileName);
@@ -1541,6 +2183,7 @@ public class GrSettingsForm : Form
         try
         {
             if (string.IsNullOrEmpty(hex)) return Color.Gray;
+            hex = hex.Trim();
             if (!hex.StartsWith("#")) return Color.FromName(hex);
             if (hex.Length == 4) hex = "#" + hex[1] + hex[1] + hex[2] + hex[2] + hex[3] + hex[3];
             return Color.FromArgb(Convert.ToInt32(hex.Substring(1, 2), 16), Convert.ToInt32(hex.Substring(3, 2), 16), Convert.ToInt32(hex.Substring(5, 2), 16));
@@ -1553,7 +2196,7 @@ public class GrSettingsForm : Form
     static TableLayoutPanel NewTable()
     {
         var t = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, Padding = new Padding(S(4)) };
-        t.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, S(190)));
+        t.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, S(250)));
         t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         return t;
     }
@@ -1562,42 +2205,43 @@ public class GrSettingsForm : Form
     {
         int row = t.RowCount++;
         t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        var l = new Label { Text = label, AutoSize = true, Anchor = AnchorStyles.Left, Padding = new Padding(S(0), S(6), S(0), S(0)) };
-        c.Margin = new Padding(S(3), S(4), S(3), S(4));
+        var l = new Label { Text = label, AutoSize = true, Anchor = AnchorStyles.Left, Padding = new Padding(0, S(4), 0, 0) };
+        c.Margin = new Padding(S(3), S(5), S(3), S(5));
         t.Controls.Add(l, 0, row);
         t.Controls.Add(c, 1, row);
     }
 
     static Label Hint(string text)
     {
-        return new Label { Text = text, AutoSize = true, MaximumSize = new Size(S(620), S(0)), ForeColor = Color.DimGray };
+        return new Label { Text = text, AutoSize = true, MaximumSize = new Size(S(720), 0), Tag = "dim" };
     }
 
-    Label Header(string text)
+    static Label Header(string text)
     {
-        return new Label { Text = text, AutoSize = true, Font = new Font(Font.FontFamily, 10f, FontStyle.Bold), Padding = new Padding(S(0), S(12), S(0), S(2)) };
+        return new Label { Text = text, AutoSize = true, Font = new Font("Segoe UI", 11f, FontStyle.Bold), Padding = new Padding(0, S(14), 0, S(2)) };
     }
 
     static CheckBox Check(string text) { return new CheckBox { Text = text, AutoSize = true }; }
 
     static NumericUpDown Num(decimal min, decimal max, int decimals)
     {
-        return new NumericUpDown { Minimum = min, Maximum = max, DecimalPlaces = decimals, Width = S(110), Increment = decimals > 0 ? 0.5m : 1m };
+        return new NumericUpDown { Minimum = min, Maximum = max, DecimalPlaces = decimals, Width = S(120), Increment = decimals > 0 ? 0.5m : 1m };
     }
 
     static Control Pair(CheckBox box, NumericUpDown num, string suffix)
     {
         var p = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
-        box.Margin = new Padding(S(0), S(5), S(6), S(0));
+        box.Margin = new Padding(0, S(5), S(6), 0);
         p.Controls.Add(box);
         p.Controls.Add(num);
-        p.Controls.Add(new Label { Text = suffix, AutoSize = true, Padding = new Padding(S(4), S(6), S(0), S(0)) });
+        p.Controls.Add(new Label { Text = suffix, AutoSize = true, Padding = new Padding(S(4), S(6), 0, 0) });
         return p;
     }
 
     Button ColorButton()
     {
-        var b = new Button { Width = S(110), Height = S(26), FlatStyle = FlatStyle.Flat, Text = "" };
+        var b = new Button { Width = S(120), Height = S(30), FlatStyle = FlatStyle.Flat, Text = "", Tag = "swatch", BackColor = Color.Gray };
+        b.FlatAppearance.BorderColor = Color.Gray;
         b.Click += (s, e) =>
         {
             using (var dlg = new ColorDialog { FullOpen = true, Color = b.BackColor })
@@ -1608,7 +2252,7 @@ public class GrSettingsForm : Form
 
     static Button MakeButton(string text, int width, EventHandler click)
     {
-        var b = new Button { Text = text, Width = width, Height = S(30) };
+        var b = new Button { Text = text, Width = width, Height = S(34), Margin = new Padding(0, 0, S(6), S(6)) };
         b.Click += click;
         return b;
     }
@@ -1678,10 +2322,22 @@ public class GrLook
     public int spins { get; set; }
     public string borderColor { get; set; }
     public int borderWidth { get; set; }
+    public string lineColor { get; set; }      // Trennlinien zwischen den Feldern
+    public int lineWidth { get; set; }
     public string pointerColor { get; set; }
+    public bool showPointer { get; set; }
     public string centerColor { get; set; }
+    public string centerImage { get; set; }    // Data-URI oder leer
+    public int hubSize { get; set; }           // Nabe in % des Radius (nur bei vollem Rad)
+    public int innerRadius { get; set; }       // hohle Mitte in % des Radius (0 = volles Rad)
     public bool proportional { get; set; }
     public int fontSize { get; set; }
+    public bool showText { get; set; }
+    public string imageMode { get; set; }      // inward, outward, left, right, upright
+    public int imageSize { get; set; }         // Bildlänge in % des Radius
+    public int imageDistance { get; set; }     // Abstand der Bild-Innenkante von der Mitte in % des Radius
+    public string winColor { get; set; }
+    public int blinkMs { get; set; }
     public bool showBanner { get; set; }
     public double holdSeconds { get; set; }
     public bool idleVisible { get; set; }
@@ -1690,8 +2346,11 @@ public class GrLook
 
     public GrLook()
     {
-        spinSeconds = 12; spins = 8; borderColor = "#ffffff"; borderWidth = 6; pointerColor = "#ffcc00";
-        centerColor = "#ffffff"; proportional = true; fontSize = 28; showBanner = true; holdSeconds = 6;
+        spinSeconds = 12; spins = 8; borderColor = "#ffffff"; borderWidth = 6; lineColor = "#ffffff"; lineWidth = 2;
+        pointerColor = "#ffcc00"; showPointer = true; centerColor = "#ffffff"; centerImage = ""; hubSize = 11;
+        innerRadius = 0; proportional = true; fontSize = 28; showText = true;
+        imageMode = "outward"; imageSize = 40; imageDistance = 40;
+        winColor = "#19cfe5"; blinkMs = 300; showBanner = true; holdSeconds = 6;
         idleVisible = false; tick = true; volume = 0.5;
     }
 }
@@ -1731,9 +2390,10 @@ public class GrConfig
     public int port { get; set; }
     public int obsConnection { get; set; }
     public bool chatAsBot { get; set; }
+    public bool darkMode { get; set; }
     public List<GrWheel> wheels { get; set; }
 
-    public GrConfig() { version = 1; host = "127.0.0.1"; port = 8080; obsConnection = 0; chatAsBot = true; wheels = new List<GrWheel>(); }
+    public GrConfig() { version = 1; host = "127.0.0.1"; port = 8080; obsConnection = 0; chatAsBot = true; darkMode = true; wheels = new List<GrWheel>(); }
 }
 
 public static class GrCore
@@ -1789,6 +2449,10 @@ public static class GrCore
             if (w.triggers.rewardIds == null) w.triggers.rewardIds = new List<string>();
             if (w.triggers.command == null) w.triggers.command = "";
             if (w.look == null) w.look = new GrLook();
+            if (w.look.centerImage == null) w.look.centerImage = "";
+            if (string.IsNullOrEmpty(w.look.imageMode)) w.look.imageMode = "outward";
+            if (string.IsNullOrEmpty(w.look.lineColor)) w.look.lineColor = w.look.borderColor ?? "#ffffff";
+            if (string.IsNullOrEmpty(w.look.winColor)) w.look.winColor = "#19cfe5";
             if (w.obs == null) w.obs = new GrObs();
             if (w.obs.addToScene == null) w.obs.addToScene = "";
             if (w.obs.syncedScene == null) w.obs.syncedScene = "";
@@ -1828,6 +2492,30 @@ public static class GrCore
         return s;
     }
 
+    // ---------- Rad exportieren / importieren ----------
+    public static string ExportWheel(GrWheel w)
+    {
+        var d = new Dictionary<string, object>();
+        d["gluecksradWheel"] = 1;
+        d["wheel"] = w;
+        return Json().Serialize(d);
+    }
+
+    public static GrWheel ImportWheel(string json)
+    {
+        var s = Json();
+        var raw = s.DeserializeObject(json) as Dictionary<string, object>;
+        if (raw == null) throw new Exception("Keine gültige Glücksrad-Datei.");
+        object inner;
+        string wheelJson = raw.TryGetValue("wheel", out inner) ? s.Serialize(inner) : json;
+        var w = s.Deserialize<GrWheel>(wheelJson);
+        if (w == null || w.segments == null) throw new Exception("Keine gültige Glücksrad-Datei.");
+        var tmp = new GrConfig();
+        tmp.wheels.Add(w);
+        Normalize(tmp);
+        return w;
+    }
+
     // ---------- Namen / Dateien ----------
     public static string ObsSceneName(GrWheel w) { return "Glücksrad – " + w.name; }
     public static string ObsInputName(GrWheel w) { return "Glücksrad – " + w.name + " (Rad)"; }
@@ -1850,7 +2538,17 @@ public static class GrCore
         boot["port"] = cfg.port.ToString(CultureInfo.InvariantCulture);
         boot["resultActionId"] = resultActionId;
         boot["resultActionName"] = ResultActionName;
-        boot["wheel"] = w;
+        // Nur optische Daten ins Overlay: Auslöser, Chattexte usw. sollen kein Neuladen der OBS-Quelle auslösen
+        var visual = new Dictionary<string, object>();
+        visual["id"] = w.id;
+        visual["name"] = w.name;
+        visual["look"] = w.look;
+        visual["segments"] = w.segments.Select(sg => new Dictionary<string, object>
+        {
+            { "text", sg.text }, { "color", sg.color }, { "textColor", sg.textColor },
+            { "image", sg.image }, { "weight", sg.weight }, { "sound", sg.sound }
+        }).ToList();
+        boot["wheel"] = visual;
         string json = Json().Serialize(boot).Replace("</", "<\\/");
         return template.Replace("/*GR_BOOT*/null/*GR_BOOT_END*/", "/*GR_BOOT*/" + json + "/*GR_BOOT_END*/");
     }
@@ -1872,13 +2570,44 @@ public static class GrCore
     }
 
     // Lost ein Feld aus und schickt das Spin-Event an die Browser-Quelle(n) des Rads.
+    // Variablen für Chatnachrichten: Platzhalter, Knopftext, Beschreibung
+    public static readonly string[][] ChatVariables =
+    {
+        new[] { "%user%", "Gewinner", "Name des Gewinners" },
+        new[] { "%prize%", "Gewinn", "Text des Gewinnfeldes" },
+        new[] { "%wheel%", "Rad", "Name des Rads" },
+        new[] { "%amount%", "Betrag", "Bits, Spendenbetrag, Anzahl Gift-Subs bzw. Kanalpunkte-Kosten" },
+        new[] { "%trigger%", "Auslöser", "Was die Drehung ausgelöst hat, z. B. Kanalpunkte, Bits, Spende, Freispin" },
+        new[] { "%field%", "Feldnummer", "Nummer des Gewinnfeldes" }
+    };
+
+    public static string FillText(string text, Dictionary<string, string> values)
+    {
+        if (string.IsNullOrEmpty(text)) return "";
+        foreach (var kv in values) text = text.Replace(kv.Key, kv.Value ?? "");
+        return text;
+    }
+
     public static void StartSpin(IInlineInvokeProxy cph, GrWheel w, string user, bool test)
     {
+        StartSpin(cph, w, user, test, -1, "", "Test");
+    }
+
+    // forcedIndex >= 0 legt das Gewinnfeld fest (nur zum Testen, Argument "gluecksradForceField" = Feldnummer ab 1)
+    public static void StartSpin(IInlineInvokeProxy cph, GrWheel w, string user, bool test, int forcedIndex, string amount, string trigger)
+    {
         if (w.segments.Count == 0) { cph.LogWarn("[Glücksrad] Rad '" + w.name + "' hat keine Felder."); return; }
-        int idx = PickSegment(w);
+        int idx = forcedIndex >= 0 && forcedIndex < w.segments.Count ? forcedIndex : PickSegment(w);
         string spinId = Guid.NewGuid().ToString("N");
         // Ergebnis serverseitig merken: nur das erste Ergebnis-Event zählt (z.B. bei doppelt geladener Quelle)
-        cph.SetGlobalVar(PendingPrefix + spinId, w.id + "|" + idx + "|" + (test ? "1" : "0") + "|" + user, false);
+        var pending = new Dictionary<string, object>();
+        pending["wheelId"] = w.id;
+        pending["index"] = idx;
+        pending["test"] = test;
+        pending["user"] = user;
+        pending["amount"] = amount ?? "";
+        pending["trigger"] = trigger ?? "";
+        cph.SetGlobalVar(PendingPrefix + spinId, Json().Serialize(pending), false);
 
         var payload = new Dictionary<string, object>();
         payload["source"] = "gluecksrad";
@@ -2006,6 +2735,23 @@ public static class GrCore
         return null;
     }
 
+    // Beschreibt das auslösende Ereignis für %trigger% und %amount%
+    public static void DescribeTrigger(Dictionary<string, object> args, out string trigger, out string amount)
+    {
+        string source = ArgString(args, "__source") ?? "";
+        trigger = "Manuell"; amount = "";
+        Func<double, string> fmt = d => d.ToString("0.##", CultureInfo.GetCultureInfo("de-DE"));
+        if (ArgString(args, "rewardId") != null) { trigger = "Kanalpunkte"; double c = ArgNumber(args, "rewardCost"); amount = c > 0 ? fmt(c) : ""; }
+        else if (source.IndexOf("Command", StringComparison.OrdinalIgnoreCase) >= 0) trigger = "Befehl";
+        else if (source.IndexOf("Cheer", StringComparison.OrdinalIgnoreCase) >= 0) { trigger = "Bits"; amount = fmt(ArgNumber(args, "bits")); }
+        else if (source.IndexOf("GiftBomb", StringComparison.OrdinalIgnoreCase) >= 0) { trigger = "Gift-Subs"; amount = fmt(ArgNumber(args, "gifts")); }
+        else if (source.IndexOf("GiftSub", StringComparison.OrdinalIgnoreCase) >= 0) { trigger = "Gift-Sub"; amount = "1"; }
+        else if (source.IndexOf("ReSub", StringComparison.OrdinalIgnoreCase) >= 0) trigger = "Resub";
+        else if (source.IndexOf("Sub", StringComparison.OrdinalIgnoreCase) >= 0) trigger = "Sub";
+        else if (source.IndexOf("Tip", StringComparison.OrdinalIgnoreCase) >= 0 || source.IndexOf("Donation", StringComparison.OrdinalIgnoreCase) >= 0)
+        { trigger = "Spende"; amount = fmt(ArgNumber(args, "tipAmount", "donationAmount", "amount")); }
+    }
+
     public static string FindUser(Dictionary<string, object> args)
     {
         return ArgString(args, "gluecksradUser", "user", "tipUsername", "donationFrom", "from", "userName", "name") ?? "Jemand";
@@ -2060,6 +2806,12 @@ public static class GrCore
     // Legt Szene + Browser-Quelle an oder aktualisiert/benennt sie um. Gibt ein kurzes Protokoll zurück.
     public static string SyncObs(IInlineInvokeProxy cph, GrConfig cfg, GrWheel w)
     {
+        return SyncObs(cph, cfg, w, true);
+    }
+
+    // refresh = false: Quelle nicht neu laden (Overlay unverändert), damit laufende Drehungen nicht abbrechen
+    public static string SyncObs(IInlineInvokeProxy cph, GrConfig cfg, GrWheel w, bool refresh)
+    {
         var log = new List<string>();
         string scene = ObsSceneName(w);
         string input = ObsInputName(w);
@@ -2106,8 +2858,11 @@ public static class GrCore
         else
         {
             ObsRequest(cph, cfg, "SetInputSettings", D("inputName", input, "inputSettings", settings, "overlay", true));
-            ObsRequest(cph, cfg, "PressInputPropertiesButton", D("inputName", input, "propertyName", "refreshnocache"));
-            log.Add("Browser-Quelle aktualisiert");
+            if (refresh)
+            {
+                ObsRequest(cph, cfg, "PressInputPropertiesButton", D("inputName", input, "propertyName", "refreshnocache"));
+                log.Add("Browser-Quelle aktualisiert");
+            }
         }
 
         // Optional: Rad-Szene in eine andere Szene (z.B. "Live") einbetten

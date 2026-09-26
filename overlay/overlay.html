@@ -44,8 +44,11 @@ const BOOT = /*GR_BOOT*/null/*GR_BOOT_END*/;
   const statusEl = document.getElementById('status');
 
   const DEFAULT_LOOK = {
-    spinSeconds: 12, spins: 8, borderColor: '#ffffff', borderWidth: 6, pointerColor: '#ffcc00',
-    centerColor: '#ffffff', proportional: true, fontSize: 28, showBanner: true, holdSeconds: 6,
+    spinSeconds: 12, spins: 8, borderColor: '#ffffff', borderWidth: 6, lineColor: '#ffffff', lineWidth: 2,
+    pointerColor: '#ffcc00', showPointer: true, centerColor: '#ffffff', centerImage: '', hubSize: 11,
+    innerRadius: 0, proportional: true, fontSize: 28, showText: true,
+    imageMode: 'outward', imageSize: 40, imageDistance: 40,
+    winColor: '#19cfe5', blinkMs: 300, showBanner: true, holdSeconds: 6,
     idleVisible: false, tick: true, volume: 0.5
   };
 
@@ -58,6 +61,8 @@ const BOOT = /*GR_BOOT*/null/*GR_BOOT_END*/;
   const imageCache = {};
 
   function look() { return Object.assign({}, DEFAULT_LOOK, (wheel && wheel.look) || {}); }
+  // Zahl aus der Konfiguration lesen (0 ist ein gültiger Wert)
+  function num(v, def) { const n = parseFloat(v); return isNaN(n) ? def : n; }
 
   // ---------- Geometrie ----------
   function segmentAngles(w) {
@@ -92,7 +97,8 @@ const BOOT = /*GR_BOOT*/null/*GR_BOOT_END*/;
     if (!wheel || !wheel.segments || !wheel.segments.length) return;
     const L = look();
     const scale = W / 1000;
-    const R = 440 * scale;             // Radius des Rads
+    const R = 440 * scale;                                         // Radius des Rads
+    const inner = Math.min(0.9, Math.max(0, num(L.innerRadius, 0) / 100)) * R;   // hohle Mitte
     const angles = segmentAngles(wheel);
 
     ctx.save();
@@ -106,47 +112,38 @@ const BOOT = /*GR_BOOT*/null/*GR_BOOT_END*/;
       const a0 = (a.start - 90) * Math.PI / 180;
       const a1 = (a.start + a.size - 90) * Math.PI / 180;
       ctx.beginPath();
-      ctx.moveTo(0, 0);
       ctx.arc(0, 0, R, a0, a1);
+      if (inner > 0) ctx.arc(0, 0, inner, a1, a0, true); else ctx.lineTo(0, 0);
       ctx.closePath();
-      ctx.fillStyle = (i === highlight && blinkOn) ? '#ffffff' : (seg.color || '#888888');
+      let fill = seg.color || '#888888';
+      if (i === highlight) fill = blinkOn ? '#ffffff' : (L.winColor || fill);
+      ctx.fillStyle = fill;
       ctx.fill();
-      ctx.lineWidth = Math.max(1, 2 * scale);
-      ctx.strokeStyle = L.borderColor;
-      ctx.stroke();
-
-      const mid = (a.start + a.size / 2 - 90) * Math.PI / 180;
-      ctx.save();
-      ctx.rotate(mid);
-      const img = getImage(seg.image);
-      const hasText = seg.text && String(seg.text).trim() !== '';
-      if (img) {
-        // Bild zeigt mit der Oberkante nach außen, Größe an die Segmentbreite angepasst
-        const arcW = 2 * R * 0.62 * Math.sin(Math.min(a.size, 170) / 2 * Math.PI / 180);
-        const maxW = Math.min(arcW, R * 0.5);
-        const ratio = img.naturalHeight / img.naturalWidth;
-        let w = maxW, h = maxW * ratio;
-        if (h > R * 0.45) { h = R * 0.45; w = h / ratio; }
-        const dist = hasText ? R * 0.68 : R * 0.62;
-        ctx.save();
-        ctx.translate(dist, 0);
-        ctx.rotate(Math.PI / 2);
-        ctx.drawImage(img, -w / 2, -h / 2, w, h);
-        ctx.restore();
+      const lw = num(L.lineWidth, 2);
+      if (lw > 0) {
+        ctx.lineWidth = lw * scale;
+        ctx.strokeStyle = L.lineColor || L.borderColor;
+        ctx.stroke();
       }
+
+      const midDeg = a.start + a.size / 2 - 90;
+      const mid = midDeg * Math.PI / 180;
+      ctx.save();
+      ctx.rotate(mid);                  // +x zeigt jetzt von der Mitte nach außen durch die Feldmitte
+      const img = getImage(seg.image);
+      const hasText = L.showText && seg.text && String(seg.text).trim() !== '';
+      if (img) drawSegmentImage(img, R, L, midDeg);
       if (hasText) {
-        let fs = (+L.fontSize || 28) * scale;
+        let fs = num(L.fontSize, 28) * scale;
         ctx.font = `700 ${fs}px "Segoe UI", Arial, sans-serif`;
-        const maxLen = R * (img ? 0.42 : 0.72);
+        const tx = R * 0.92;
+        const maxLen = Math.max(20 * scale, tx - Math.max(inner, R * 0.15) - 10 * scale);
         while (ctx.measureText(seg.text).width > maxLen && fs > 10 * scale) {
           fs -= 1 * scale; ctx.font = `700 ${fs}px "Segoe UI", Arial, sans-serif`;
         }
         ctx.fillStyle = seg.textColor || '#000000';
         ctx.textAlign = 'right';
         ctx.textBaseline = 'middle';
-        ctx.lineWidth = Math.max(2, fs / 7);
-        ctx.strokeStyle = 'rgba(0,0,0,.35)';
-        const tx = img ? R * 0.45 : R * 0.9;
         ctx.fillText(seg.text, tx, 0);
       }
       ctx.restore();
@@ -154,36 +151,78 @@ const BOOT = /*GR_BOOT*/null/*GR_BOOT_END*/;
     ctx.restore();
 
     // Außenring
-    ctx.beginPath();
-    ctx.arc(c, c, R, 0, Math.PI * 2);
-    ctx.lineWidth = (+L.borderWidth || 6) * scale;
-    ctx.strokeStyle = L.borderColor;
-    ctx.stroke();
+    const bw = num(L.borderWidth, 6);
+    if (bw > 0) {
+      ctx.beginPath();
+      ctx.arc(c, c, R, 0, Math.PI * 2);
+      ctx.lineWidth = bw * scale;
+      ctx.strokeStyle = L.borderColor;
+      ctx.stroke();
+    }
 
-    // Nabe
-    ctx.beginPath();
-    ctx.arc(c, c, 50 * scale, 0, Math.PI * 2);
-    ctx.fillStyle = L.centerColor;
-    ctx.fill();
-    ctx.lineWidth = 4 * scale;
-    ctx.strokeStyle = L.borderColor;
-    ctx.stroke();
+    // Mitte: Nabe (volles Rad) bzw. Bild in der hohlen Mitte
+    const hub = inner > 0 ? inner : Math.max(0, num(L.hubSize, 11) / 100) * R;
+    const centerImg = getImage(L.centerImage);
+    if (hub > 0) {
+      if (centerImg) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(c, c, hub, 0, Math.PI * 2);
+        ctx.clip();
+        const s2 = hub * 2 / Math.max(centerImg.naturalWidth, centerImg.naturalHeight);
+        const w2 = centerImg.naturalWidth * s2, h2 = centerImg.naturalHeight * s2;
+        ctx.drawImage(centerImg, c - w2 / 2, c - h2 / 2, w2, h2);
+        ctx.restore();
+      } else if (inner === 0) {
+        ctx.beginPath();
+        ctx.arc(c, c, hub, 0, Math.PI * 2);
+        ctx.fillStyle = L.centerColor;
+        ctx.fill();
+        if (bw > 0) { ctx.lineWidth = Math.min(bw, 4) * scale; ctx.strokeStyle = L.borderColor; ctx.stroke(); }
+      }
+    }
 
     // Zeiger oben
-    const tipY = c - R + 38 * scale;
-    ctx.beginPath();
-    ctx.moveTo(c, tipY);
-    ctx.lineTo(c - 32 * scale, c - R - 32 * scale);
-    ctx.lineTo(c + 32 * scale, c - R - 32 * scale);
-    ctx.closePath();
-    ctx.fillStyle = L.pointerColor;
-    ctx.shadowColor = 'rgba(0,0,0,.5)';
-    ctx.shadowBlur = 8 * scale;
-    ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.lineWidth = 3 * scale;
-    ctx.strokeStyle = 'rgba(0,0,0,.6)';
-    ctx.stroke();
+    if (L.showPointer !== false) {
+      const tipY = c - R + 38 * scale;
+      ctx.beginPath();
+      ctx.moveTo(c, tipY);
+      ctx.lineTo(c - 32 * scale, c - R - 32 * scale);
+      ctx.lineTo(c + 32 * scale, c - R - 32 * scale);
+      ctx.closePath();
+      ctx.fillStyle = L.pointerColor;
+      ctx.shadowColor = 'rgba(0,0,0,.5)';
+      ctx.shadowBlur = 8 * scale;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.lineWidth = 3 * scale;
+      ctx.strokeStyle = 'rgba(0,0,0,.6)';
+      ctx.stroke();
+    }
+  }
+
+  // Zeichnet ein Feldbild. Erwartet ein Koordinatensystem, in dem +x von der Mitte nach außen zeigt.
+  //   imageSize     = Länge des Bildes in % des Radius (bei radialer Ausrichtung die Bildhöhe)
+  //   imageDistance = Abstand der Bild-Innenkante von der Mitte in % des Radius
+  //   imageMode     = inward (Oberkante zur Mitte), outward (Oberkante nach außen),
+  //                   left / right (quer), upright (immer aufrecht)
+  function drawSegmentImage(img, R, L, midDeg) {
+    const mode = L.imageMode || 'outward';
+    const len = Math.max(1, num(L.imageSize, 40)) / 100 * R;
+    const start = Math.max(0, num(L.imageDistance, 40)) / 100 * R;
+    const iw = img.naturalWidth, ih = img.naturalHeight;
+    let w, h, radial;
+    if (mode === 'inward' || mode === 'outward') { h = len; w = len * iw / ih; radial = h; }
+    else if (mode === 'upright') { const s = len / Math.max(iw, ih); w = iw * s; h = ih * s; radial = len; }
+    else { w = len; h = len * ih / iw; radial = w; }
+    ctx.save();
+    ctx.translate(start + radial / 2, 0);
+    if (mode === 'inward') ctx.rotate(-Math.PI / 2);
+    else if (mode === 'outward') ctx.rotate(Math.PI / 2);
+    else if (mode === 'right') ctx.rotate(Math.PI);
+    else if (mode === 'upright') ctx.rotate(-(midDeg + rotation) * Math.PI / 180);
+    ctx.drawImage(img, -w / 2, -h / 2, w, h);
+    ctx.restore();
   }
 
   // ---------- Sound ----------
@@ -199,7 +238,7 @@ const BOOT = /*GR_BOOT*/null/*GR_BOOT_END*/;
       osc.type = 'square';
       osc.frequency.setValueAtTime(1400, t);
       osc.frequency.exponentialRampToValueAtTime(500, t + 0.03);
-      gain.gain.setValueAtTime(0.15 * (+L.volume || 0), t);
+      gain.gain.setValueAtTime(0.15 * num(L.volume, 0.5), t);
       gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.04);
       osc.connect(gain).connect(audioCtx.destination);
       osc.start(t);
@@ -209,7 +248,7 @@ const BOOT = /*GR_BOOT*/null/*GR_BOOT_END*/;
 
   function playSound(src) {
     if (!src) return;
-    try { const a = new Audio(src); a.volume = Math.min(1, Math.max(0, +look().volume || 0.5)); a.play().catch(() => {}); }
+    try { const a = new Audio(src); a.volume = Math.min(1, Math.max(0, num(look().volume, 0.5))); a.play().catch(() => {}); }
     catch (e) { /* ignorieren */ }
   }
 
@@ -246,8 +285,25 @@ const BOOT = /*GR_BOOT*/null/*GR_BOOT_END*/;
     });
   }
 
+  // Laufende Drehung merken: Wird die Quelle mitten in der Drehung neu geladen, wird sie danach fortgesetzt.
+  const RESUME_KEY = 'gluecksrad_running_' + (WHEEL_ID || 'demo');
+  function rememberJob(job) {
+    try { if (job) localStorage.setItem(RESUME_KEY, JSON.stringify({ ts: Date.now(), job })); else localStorage.removeItem(RESUME_KEY); }
+    catch (e) { /* Speicher voll oder gesperrt: dann eben ohne Fortsetzen */ }
+  }
+  function resumeJob() {
+    try {
+      const raw = localStorage.getItem(RESUME_KEY);
+      if (!raw) return;
+      localStorage.removeItem(RESUME_KEY);
+      const saved = JSON.parse(raw);
+      if (saved && saved.job && Date.now() - saved.ts < 5 * 60 * 1000) enqueue(saved.job);
+    } catch (e) { /* ignorieren */ }
+  }
+
   async function runSpin(job) {
     spinning = true;
+    if (!DEMO) rememberJob(job);
     wheel = job.wheel;
     highlight = -1;
     rotation = ((rotation % 360) + 360) % 360;
@@ -264,22 +320,23 @@ const BOOT = /*GR_BOOT*/null/*GR_BOOT_END*/;
     // Rotation, bei der stopAt unter dem Zeiger (0°) liegt
     const finalMod = (360 - stopAt) % 360;
     const base = rotation - (rotation % 360);
-    let target = base + (+L.spins || 8) * 360 + finalMod;
+    let target = base + Math.max(1, num(L.spins, 8)) * 360 + finalMod;
     if (target - rotation < 720) target += 360;
-    await animateTo(target, +L.spinSeconds || 12);
+    await animateTo(target, num(L.spinSeconds, 12));
 
     const seg = wheel.segments[idx] || {};
     playSound(seg.sound);
     highlight = idx;
-    const blink = setInterval(() => { blinkOn = !blinkOn; draw(); }, 300);
+    const blink = setInterval(() => { blinkOn = !blinkOn; draw(); }, Math.max(80, num(L.blinkMs, 300)));
     if (L.showBanner) {
       const label = (seg.text && seg.text.trim()) || seg.name || ('Feld ' + (idx + 1));
       banner.textContent = (job.user ? job.user + ' gewinnt:\n' : 'Gewonnen:\n') + label;
       banner.classList.add('visible');
     }
     reportResult(job, idx);
+    if (!DEMO) rememberJob(null);
 
-    await sleep(Math.max(1, +L.holdSeconds || 6) * 1000);
+    await sleep(Math.max(1, num(L.holdSeconds, 6)) * 1000);
     clearInterval(blink);
     blinkOn = false;
     highlight = -1;
@@ -314,6 +371,7 @@ const BOOT = /*GR_BOOT*/null/*GR_BOOT_END*/;
     ws.onopen = () => {
       setStatus('');
       ws.send(JSON.stringify({ request: 'Subscribe', id: 'gr-sub', events: { General: ['Custom'] } }));
+      resumeJob();
     };
     ws.onmessage = ev => handleMessage(ev.data);
     ws.onclose = () => {
