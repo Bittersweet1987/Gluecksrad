@@ -116,6 +116,10 @@ def main():
             "websocketClients": [],
             "timers": [],
         },
+        # Pflichtfelder: ohne sie meldet Streamer.bot den String als ungültig
+        "version": 24,
+        "exportedFrom": "1.0.7",
+        "minimumVersion": "1.0.0-alpha.1",
     }
     raw = json.dumps(export, ensure_ascii=False).encode("utf-8")
     encoded = base64.b64encode(b"SBAE" + gzip.compress(raw)).decode("ascii")
